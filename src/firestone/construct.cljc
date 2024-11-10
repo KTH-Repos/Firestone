@@ -626,26 +626,6 @@
   [state & ids]
   (reduce remove-minion state ids))
 
-
-(defn handle-fatigue
-  "Handles fatigue when a player's deck is empty, and they need to draw a card.
-   Increases fatigue damage by 1 each time it occurs."
-  {:test (fn []
-           (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1" :fatigue 0)}])
-                 state-after-first-fatigue (handle-fatigue initial-state "p1")
-                 state-after-second-fatigue (handle-fatigue state-after-first-fatigue "p1")]
-             (is= (get-in state-after-first-fatigue [:players "p1" :hero :damage-taken]) 1)
-             (is= (get-in state-after-first-fatigue [:players "p1" :hero :fatigue]) 1)
-             (is= (get-in state-after-second-fatigue [:players "p1" :hero :damage-taken]) 3)
-             (is= (get-in state-after-second-fatigue [:players "p1" :hero :fatigue]) 2)))}
-  [state player-id]
-  (let [current-fatigue (get-in state [:players player-id :hero :fatigue] 0)
-        new-fatigue (inc current-fatigue)]
-    (-> state
-        (update-in [:players player-id :hero :damage-taken] + new-fatigue)
-        (assoc-in [:players player-id :hero :fatigue] new-fatigue))))
-
-
 (defn end-turn
   "Ends the current player's turn, switches to the next player, sets their mana to 10, and handles card draw or fatigue."
   {:test (fn []
