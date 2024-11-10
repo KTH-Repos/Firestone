@@ -13,3 +13,6 @@ pom.xml.asc
 *.iml
 .nrepl-port
 *.DS_Store
+/.clj-kondo
+/.cpcache
+/.idea
