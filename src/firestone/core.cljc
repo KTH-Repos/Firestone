@@ -12,7 +12,8 @@
                                          get-deck
                                          get-hand
                                          add-card-to-hand
-                                         remove-card-from-deck]]))
+                                         remove-card-from-deck
+                                         handle-fatigue]]))
 
 
 (defn get-character
@@ -138,13 +139,22 @@
              (is (empty? (get-deck state "p1")))
              (is= (->> (get-hand state "p1")
                        (map :name))
-                  ["Boulderfist Ogre"])))}
+                  ["Boulderfist Ogre"]))
+           ; Test fatigue damage when the deck is empty
+           (let [state (-> (create-game [{:deck [] :hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0 :fatigue 0)}])
+                           (draw-card "p1"))]
+             (is= (get-in state [:players "p1" :hero :damage-taken]) 1) ; Hero takes 1 fatigue damage
+             (is= (get-in state [:players "p1" :hero :fatigue]) 1)) ; Fatigue counter increments
+           ; Test consecutive fatigue
+           (let [state (-> (create-game [{:deck [] :hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0 :fatigue 1)}])
+                           (draw-card "p1"))]
+             (is= (get-in state [:players "p1" :hero :damage-taken]) 2) ; Hero takes 2 fatigue damage
+             (is= (get-in state [:players "p1" :hero :fatigue]) 2)) ; Fatigue counter increments again
+           )}
   [state player-id]
   (let [card (first (get-deck state player-id))]
     (if card
-      (-> (remove-card-from-deck state player-id card)
+      (-> state
+          (remove-card-from-deck player-id card)
           (add-card-to-hand player-id card))
-      ; fatigue
-      ; (deal-fatigue state player-id)
-      state ; broken !! TODO: Fixme
-      )))
+      (handle-fatigue state player-id)))) ;
