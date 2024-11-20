@@ -8,7 +8,11 @@
                                          create-minion
                                          get-heroes
                                          get-minion
-                                         get-minions]]))
+                                         get-minions
+                                         get-deck
+                                         get-hand
+                                         add-card-to-hand
+                                         remove-card-from-deck]]))
 
 
 (defn get-character
@@ -125,3 +129,22 @@
          (< (:attacks-performed-this-turn attacker) 1)
          (not (sleepy? state attacker-id))
          (not= (:owner-id attacker) (:owner-id target)))))
+
+
+(defn draw-card
+  {:test (fn []
+           (let [state (-> (create-game [{:deck ["Boulderfist Ogre"]}])
+                           (draw-card "p1"))]
+             (is (empty? (get-deck state "p1")))
+             (is= (->> (get-hand state "p1")
+                       (map :name))
+                  ["Boulderfist Ogre"])))}
+  [state player-id]
+  (let [card (first (get-deck state player-id))]
+    (if card
+      (-> (remove-card-from-deck state player-id card)
+          (add-card-to-hand player-id card))
+      ; fatigue
+      ; (deal-fatigue state player-id)
+      state ; broken !! TODO: Fixme
+      )))

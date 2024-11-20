@@ -626,6 +626,25 @@
   [state & ids]
   (reduce remove-minion state ids))
 
+
+(defn remove-card-from-deck
+  {:test (fn []
+           (let [state (-> (create-game [{:deck [(create-card "Leper Gnome" :id "c1")
+                                                 (create-card "Boulderfist Ogre" :id "c2")
+                                                 (create-card "Leper Gnome" :id "c3")]}]))
+                 card (->> (get-deck state "p1")
+                           (second))]
+             (is= (as-> state $
+                        (remove-card-from-deck $ "p1" card)
+                        (get-deck $ "p1")
+                        (map :id $))
+                  ["c1" "c3"])))}
+  [state player-id card]
+  (update-in state [:players player-id :deck]
+             (fn [deck]
+               (->> deck
+                    (remove (fn [c] (= (:id card) (:id c))))))))
+
 (defn end-turn
   "Ends the current player's turn, switches to the next player, sets their mana to 10, and handles card draw or fatigue."
   {:test (fn []
