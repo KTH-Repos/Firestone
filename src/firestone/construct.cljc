@@ -463,6 +463,38 @@
   (->> (:players state)
        (vals)))
 
+(defn get-hero
+  "Returns the hero of the player with the given player-id from the game state."
+  {:test (fn []
+           (let [game-state {:player-id-in-turn "p1"
+                             :players {"p1" {:id "p1"
+                                             :hero {:name "Jaina Proudmoore"
+                                                    :id "h1"
+                                                    :entity-type :hero
+                                                    :damage-taken 0
+                                                    :fatigue 0}}
+                                       "p2" {:id "p2"
+                                             :hero {:name "Gul'dan"
+                                                    :id "h2"
+                                                    :entity-type :hero
+                                                    :damage-taken 0
+                                                    :fatigue 0}}}}]
+             (is (= (get-hero game-state "p1")
+                    {:name "Jaina Proudmoore"
+                     :id "h1"
+                     :entity-type :hero
+                     :damage-taken 0
+                     :fatigue 0}))
+             (is (= (get-hero game-state "p2")
+                    {:name "Gul'dan"
+                     :id "h2"
+                     :entity-type :hero
+                     :damage-taken 0
+                     :fatigue 0}))
+             (is (nil? (get-hero game-state "p3")))))}
+  [state player-id]
+  (get-in state [:players player-id :hero]))
+
 
 (defn get-heroes
   {:test (fn []
