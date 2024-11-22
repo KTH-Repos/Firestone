@@ -1,11 +1,23 @@
 (ns firestone.client.kth.endpoints
   (:require [clojure.data.json :as json]
             [firestone.construct :refer [create-game]]
-            [firestone.client.kth.mapper :refer [game->client-game
-                                                 client-input->internal-game]]))
+            [firestone.client.kth.mapper :refer [game->client-game]]))
 
 (def cors-headers {"Access-Control-Allow-Origin"  "*"
                    "Access-Control-Allow-Methods" "*"})
+
+(defn transform-client-input
+  "Transforms the client input to the format expected by create-game."
+  [client-input]
+  (let [game-data (or client-input [])] ; Extract `:game` or default to an empty array
+    {:game (mapv (fn [player]
+                   {:hand     (mapv #(if (string? %) % (str %)) (get player :hand [])) ; Validate strings
+                    :deck     (mapv #(if (string? %) % (str %)) (get player :deck []))
+                    :minions  (mapv #(if (string? %) % (str %)) (get player :board [])) ; Convert `:board` to `:minions`
+                    :hero     (get player :hero "Jaina Proudmoore") ; Default hero
+                    :mana     10                                   ; Default mana
+                    :max-mana 10})                                ; Default max mana
+                 game-data)}))
 
 (defn handler
   [request]
@@ -30,14 +42,14 @@
                    (-> (:body request)
                        (slurp)
                        (json/read-str :key-fn keyword)))
-            internal-game (-> body
-                              (client-input->internal-game) ; Transform client input
-                              (create-game))] ; Pass transformed data to create-game
+            transformed-game-input (transform-client-input (:game body))] ; Transform input
+        (println "Transformed input for create-game:" transformed-game-input) ; Debugging log
         {:status  200
          :headers (merge cors-headers {"Content-Type" "application/json"})
-         :body    (-> (vector (game->client-game internal-game))
+         :body    (-> (create-game transformed-game-input) ; Use transformed input
+                      (game->client-game)
+                      (vector)
                       (json/write-str))})
-
 
       :else
       {:status  200
