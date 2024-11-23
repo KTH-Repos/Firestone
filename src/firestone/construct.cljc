@@ -78,6 +78,8 @@
                                      (create-hero "Gul'dan")])
                 {:player-id-in-turn             "p1"
                  :players                       {"p1" {:id      "p1"
+                                                       :mana    10
+                                                       :max-mana 10
                                                        :deck    []
                                                        :hand    []
                                                        :minions []
@@ -87,6 +89,8 @@
                                                                  :fatigue      0
                                                                  :entity-type  :hero}}
                                                  "p2" {:id      "p2"
+                                                       :mana    10
+                                                       :max-mana 10
                                                        :deck    []
                                                        :hand    []
                                                        :minions []
@@ -109,6 +113,8 @@
       :players                       (->> heroes
                                           (map-indexed (fn [index hero]
                                                          {:id      (str "p" (inc index))
+                                                          :mana    10
+                                                          :max-mana 10
                                                           :deck    []
                                                           :hand    []
                                                           :minions []
@@ -351,6 +357,14 @@
           state
           cards))
 
+(defn set-max-mana
+  [state player-id value]
+  (assoc-in state [:players player-id :max-mana] value))
+
+(defn set-mana
+  [state player-id value]
+  (assoc-in state [:players player-id :mana] value))
+
 
 (defn create-game
   "Creates a game with the given deck, hand, minions (placed on the board), and heroes."
@@ -372,6 +386,7 @@
                 {:player-id-in-turn             "p2"
                  :players                       {"p1" {:id      "p1"
                                                        :mana 10
+                                                       :max-mana 10
                                                        :deck    [{:entity-type :card
                                                                   :id          "c3"
                                                                   :name        "Loot Hoarder"
@@ -398,6 +413,7 @@
                                                                  :fatigue      0}}
                                                  "p2" {:id      "p2"
                                                        :mana 10
+                                                       :max-mana 10
                                                        :deck    []
                                                        :hand    []
                                                        :minions []
@@ -425,12 +441,15 @@
                      (reduce (fn [state {player-id :player-id
                                          minions   :minions
                                          deck      :deck
-                                         hand      :hand}]
-                               (-> state
-                                   (add-minions-to-board player-id minions)
-                                   (add-cards-to-deck player-id deck)
-                                   (add-cards-to-hand player-id hand)
-                                   (assoc-in [:players player-id :mana] 10))) ; Set initial mana for each player
+                                         hand      :hand
+                                         mana      :mana
+                                         max-mana  :max-mana}]
+                               (as-> state $
+                                     (if mana (set-mana $ player-id mana) $)
+                                     (if max-mana (set-max-mana $ player-id max-mana) $)
+                                     (add-minions-to-board $ player-id minions)
+                                     (add-cards-to-deck $ player-id deck)
+                                     (add-cards-to-hand $ player-id hand)))
                              $
                              players-data))]
      (if (empty? kvs)
@@ -438,6 +457,21 @@
        (apply assoc state kvs))))
   ([]
    (create-game [])))
+
+
+(defn get-max-mana
+  [state player-id]
+  (get-in state [:players player-id :max-mana]))
+
+(defn get-mana
+  [state player-id]
+  (get-in state [:players player-id :mana]))
+
+(defn increase-max-mana
+  [state player-id]
+  (update-in state [:players player-id :max-mana]
+             (fn [old-value]
+               (min (inc old-value) 10))))
 
 
 (defn get-minion

@@ -13,7 +13,9 @@
                                          get-hand
                                          add-card-to-hand
                                          remove-card-from-deck
-                                         handle-fatigue]]))
+                                         handle-fatigue
+                                         set-mana
+                                         get-max-mana]]))
 
 
 (defn get-character
@@ -158,3 +160,20 @@
           (remove-card-from-deck player-id card)
           (add-card-to-hand player-id card))
       (handle-fatigue state player-id)))) ;
+
+
+(defn refresh-mana
+  "Refreshes the player's mana to the maximum value."
+  {:test (fn []
+
+           (let [initial-state (-> (create-game [{:hero (create-hero "Jaina Proudmoore")}])
+                                   (assoc-in [:players "p1" :max-mana] 10)  ; Set max mana to 10
+                                   (set-mana "p1" 3))       ; Set mana to 3
+
+                 refreshed-state (refresh-mana initial-state "p1")]        ; Refresh mana for player "p1"
+
+             ;; Ensure the player's mana is refreshed to max-mana.
+             (is= (get-in refreshed-state [:players "p1" :mana]) 10)))}
+  [state player-id]
+  (let [value (get-max-mana state player-id)]
+    (set-mana state player-id value)))
