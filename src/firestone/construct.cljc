@@ -210,6 +210,7 @@
   [(update state :counter inc) (:counter state)])
 
 (declare battlecry)
+(declare trigger-spell)
 
 
 (defn add-minion-to-board
@@ -583,11 +584,15 @@
                     (get-minion "m")
                     (:damage-taken))
                 2))}
+
   [state id key function-or-value]
   (let [minion (get-minion state id)]
-    (replace-minion state (if (fn? function-or-value)
-                            (update minion key function-or-value)
-                            (assoc minion key function-or-value)))))
+    (if minion
+      (let [updated-minion (if (fn? function-or-value)
+                             (update minion key function-or-value)
+                             (assoc minion key function-or-value))]
+        (replace-minion state updated-minion))
+      state)))
 
 (defn handle-fatigue
   "Handles fatigue when a player's deck is empty, and they need to draw a card.
@@ -914,3 +919,72 @@
             (add-minion-to-board owner-id (create-minion "Boom Bot") (+ 2 (:position minion))))
         state))
     state))
+
+
+(defn trigger-spell
+  "Triggers the effect of a spell when it's played on the board."
+  {:test (fn []
+           ; Test Consecration
+           (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0)}
+                                             {:hero (create-hero "Gul'dan" :id "h2" :damage-taken 0)
+                                              :minions [(create-minion "Leper Gnome" :id "m1" :damage-taken 0)]}])
+                 spell-card (create-card "Consecration" :owner-id "p1")
+                 result-state (trigger-spell initial-state spell-card)]
+             (is= (get-in result-state [:players "p2" :hero :damage-taken]) 2)
+             (is= (get-in result-state [:players "p2" :minions 0 :damage-taken]) 2))
+
+           ; Test Equality
+           (let [initial-state (create-game [{:minions [(create-minion "Boulderfist Ogre" :id "m1" :health 7)]}
+                                             {:minions [(create-minion "Leper Gnome" :id "m2" :health 5)]}])
+                 spell-card (create-card "Equality" :owner-id "p1")
+                 result-state (trigger-spell initial-state spell-card)]
+             (is= (get-in result-state [:players "p1" :minions 0 :health]) 1)
+             (is= (get-in result-state [:players "p2" :minions 0 :health]) 1))
+
+           ; Test Feign Death
+           (let [initial-state (create-game [{:minions [(create-minion "Leper Gnome" :id "m1" :ability :deathrattle)
+                                                        (create-minion "Boulderfist Ogre" :id "m2")]}])
+                 spell-card (create-card "Feign Death" :owner-id "p1")
+                 result-state (trigger-spell initial-state spell-card)]
+             (is (not= result-state initial-state)) ; Assuming trigger-deathrattle changes the state
+             (is= (count (get-in result-state [:players "p1" :minions])) 2)))}
+  [state spell-card]
+  (let [spell-name (:name spell-card)
+        player-id (:owner-id spell-card)]
+    (case spell-name
+      "Consecration"
+      (let [enemy-id (if (= player-id "p1") "p2" "p1")]
+        (-> state
+            ; Damage enemy hero by 2
+            (update-in [:players enemy-id :hero :damage-taken] + 2)
+            ; Damage all enemy minions by 2
+            (update-in [:players enemy-id :minions]
+                       (fn [minions]
+                         (vec (map #(update % :damage-taken + 2) minions))))))
+
+      "Equality"
+      (reduce
+        (fn [s player-id]
+          (update-in s [:players player-id :minions]
+                     (fn [minions]
+                       (mapv #(assoc % :health 1) minions))))
+        state
+        (keys (:players state)))
+
+      "Feign Death"
+      (let [player-minions (get-in state [:players player-id :minions])
+            deathrattle-minions (filter #(= (:ability %) :deathrattle) player-minions)]
+        (reduce
+          (fn [s minion]
+            (trigger-deathrattle s minion))
+          state
+          deathrattle-minions))
+
+      state)))
+
+
+
+
+
+
+

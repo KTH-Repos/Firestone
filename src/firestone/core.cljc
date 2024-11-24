@@ -15,7 +15,8 @@
                                          remove-card-from-deck
                                          handle-fatigue
                                          set-mana
-                                         get-max-mana]]))
+                                         get-max-mana
+                                         trigger-spell]]))
 
 
 (defn get-character
@@ -145,21 +146,25 @@
            ; Test fatigue damage when the deck is empty
            (let [state (-> (create-game [{:deck [] :hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0 :fatigue 0)}])
                            (draw-card "p1"))]
-             (is= (get-in state [:players "p1" :hero :damage-taken]) 1) ; Hero takes 1 fatigue damage
-             (is= (get-in state [:players "p1" :hero :fatigue]) 1)) ; Fatigue counter increments
+             (is= (get-in state [:players "p1" :hero :damage-taken]) 1)
+             (is= (get-in state [:players "p1" :hero :fatigue]) 1))
            ; Test consecutive fatigue
            (let [state (-> (create-game [{:deck [] :hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0 :fatigue 1)}])
                            (draw-card "p1"))]
-             (is= (get-in state [:players "p1" :hero :damage-taken]) 2) ; Hero takes 2 fatigue damage
-             (is= (get-in state [:players "p1" :hero :fatigue]) 2)) ; Fatigue counter increments again
+             (is= (get-in state [:players "p1" :hero :damage-taken]) 2)
+             (is= (get-in state [:players "p1" :hero :fatigue]) 2))
            )}
   [state player-id]
   (let [card (first (get-deck state player-id))]
     (if card
-      (-> state
-          (remove-card-from-deck player-id card)
-          (add-card-to-hand player-id card))
-      (handle-fatigue state player-id)))) ;
+      (let [state-after-draw (-> state
+                                 (remove-card-from-deck player-id card))]
+        (if (= (:type card) :spell)
+          (-> state-after-draw
+              (trigger-spell card)
+              (draw-card player-id))
+          (add-card-to-hand state-after-draw player-id card)))
+      (handle-fatigue state player-id))))
 
 
 (defn refresh-mana
