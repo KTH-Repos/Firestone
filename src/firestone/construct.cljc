@@ -727,8 +727,9 @@
                (->> deck
                     (remove (fn [c] (= (:id card) (:id c))))))))
 
+(declare trigger-stealth)
 (defn end-turn
-  "Ends the current player's turn, switches to the next player, sets their mana to 10, and handles card draw or fatigue."
+  "Ends the current player's turn, switches to the next player, sets their mana to 10, handles card draw or fatigue, and triggers stealth effects."
   {:test (fn []
            (let [initial-state (create-game [{:deck ["Card1" "Card2"] :mana 5}
                                              {:deck ["Card3"] :mana 7}])
@@ -750,14 +751,20 @@
                (is= (get-in fatigue-state [:players "p2" :hero :damage-taken]) 1))))}
   [state]
   (let [current-player (:player-id-in-turn state)
-        next-player (if (= current-player "p1") "p2" "p1")]
+        next-player (if (= current-player "p1") "p2" "p1")
+        stealth-minions (filter #(= (:ability %) :stealth) (get-minions state current-player))]
     (-> state
         (assoc :player-id-in-turn next-player)
         (assoc-in [:players next-player :mana] 10)
         (cond->
           (empty? (get-deck state next-player)) (handle-fatigue next-player)
           (not-empty (get-deck state next-player)) (-> (update-in [:players next-player :hand] conj (first (get-deck state next-player)))
-                                                       (update-in [:players next-player :deck] rest))))))
+                                                       (update-in [:players next-player :deck] rest)))
+        ((fn [s]
+           (reduce (fn [s minion]
+                     (trigger-stealth s (:id minion)))
+                   s
+                   stealth-minions))))))
 
 
 (defn play-minion-card
@@ -982,6 +989,47 @@
 
       state)))
 
+(defn trigger-stealth
+  "Triggers the stealth effect for minions with the stealth ability"
+  {:test (fn []
+           ; Test Moroes
+           (let [initial-state (create-game [{:minions [(create-minion "Moroes" :id "m1" :owner-id "p1")]}])
+                 result-state (trigger-stealth initial-state "m1")
+                 player-minions (get-minions result-state "p1")]
+             (is= (count player-minions) 2)
+             (is= (:name (first player-minions)) "Moroes")
+             (is= (:name (second player-minions)) "Steward"))
+
+           ; Test Blood Imp
+           (let [initial-state (create-game [{:minions [(create-minion "Blood Imp" :id "m1" :owner-id "p1")
+                                                        (create-minion "Boulderfist Ogre" :id "m2" :owner-id "p1" :health 7)]}])
+                 result-state (trigger-stealth initial-state "m1")
+                 ogre (get-minion result-state "m2")]
+             (is= (:health ogre) 8))
+
+           ; Test Blood Imp with no other minions
+           (let [initial-state (create-game [{:minions [(create-minion "Blood Imp" :id "m1" :owner-id "p1")]}])
+                 result-state (trigger-stealth initial-state "m1")]
+             (is= result-state initial-state)))}
+  [state minion-id]
+  (let [minion (get-minion state minion-id)
+        player-id (:owner-id minion)]
+    (case (:name minion)
+      "Moroes"
+      (let [[new-state steward-id] (generate-id state)
+            steward (create-minion "Steward" :id steward-id :owner-id player-id)]
+        (add-minion-to-board new-state player-id steward (count (get-minions new-state player-id))))
+
+      "Blood Imp"
+      (let [friendly-minions (filter #(and (= (:owner-id %) player-id)
+                                           (not= (:id %) minion-id))
+                                     (get-minions state player-id))]
+        (if (seq friendly-minions)
+          (let [random-minion (rand-nth friendly-minions)]
+            (update-minion state (:id random-minion) :health inc))
+          state))
+
+      state)))
 
 
 
