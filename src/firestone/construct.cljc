@@ -209,6 +209,8 @@
   {:pre [(contains? state :counter)]}
   [(update state :counter inc) (:counter state)])
 
+(declare battlecry)
+
 
 (defn add-minion-to-board
   "Adds a minion with a given position to a player's minions and updates the other minions' positions."
@@ -245,16 +247,20 @@
         ready-minion (assoc minion :position position
                                    :owner-id player-id
                                    :id id
-                                   :added-to-board-time-id time-id)]
-    (update-in state
-               [:players player-id :minions]
-               (fn [minions]
-                 (conj (->> minions
-                            (mapv (fn [m]
-                                    (if (< (:position m) position)
-                                      m
-                                      (update m :position inc)))))
-                       ready-minion)))))
+                                   :added-to-board-time-id time-id)
+        state-after-add (update-in state
+                                   [:players player-id :minions]
+                                   (fn [minions]
+                                     (conj (->> minions
+                                                (mapv (fn [m]
+                                                        (if (< (:position m) position)
+                                                          m
+                                                          (update m :position inc)))))
+                                           ready-minion)))]
+    (if (= (:ability ready-minion) :battlecry)
+      (battlecry state-after-add ready-minion)
+      state-after-add)))
+
 
 
 (defn add-minions-to-board
@@ -841,3 +847,70 @@
           (assoc updated-state :game-over true)
           updated-state))
       state)))
+
+
+(defn battlecry
+  "Triggers the Battlecry effect of a minion"
+  {:test (fn []
+           (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0)}
+                                             {:hero (create-hero "Gul'dan" :id "h2" :damage-taken 0)
+                                              :minions [(create-minion "Sheep" :id "s1" :attack 1 :owner-id "p2")]}])
+                 silver-hand-knight (create-minion "Silver Hand Knight" :id "shk" :owner-id "p1")
+                 state-with-knight (add-minion-to-board initial-state "p1" silver-hand-knight 0)
+
+                 stampeding-kodo (create-minion "Stampeding Kodo" :id "sk" :owner-id "p1")
+                 state-with-kodo (add-minion-to-board state-with-knight "p1" stampeding-kodo 1)
+                 twilight-drake (create-minion "Twilight Drake" :id "td" :owner-id "p1")
+                 state-with-card (add-card-to-hand state-with-kodo "p1" "Test Card")
+                 state-with-drake (add-minion-to-board state-with-card "p1" twilight-drake 2)
+                 dr-boom (create-minion "Dr. Boom" :id "db" :owner-id "p1")
+                 state-with-boom (add-minion-to-board initial-state "p1" dr-boom 0)
+                 ]
+
+             (is= (count (get-minions state-with-knight "p1")) 2)
+             (is= (get-in (get-minions state-with-knight "p1") [1 :name]) "Squire")
+             (is= (count (get-minions state-with-kodo "p2")) 0)
+             (is= (get-in (get-minion state-with-drake "td") [:health]) 2)
+             ; Test Dr. Boom Battlecry (summoning two Boom Bots)
+             (is= (count (get-minions state-with-boom "p1")) 3)))}
+  [state minion]
+  (case (:name minion)
+    "Silver Hand Knight"
+    (let [owner-id (:owner-id minion)]
+      (add-minion-to-board state owner-id (create-minion "Squire") (inc (:position minion))))
+    "Mad Bomber"
+    (let [owner-id (:owner-id minion)
+          enemy-id (if (= owner-id "p1") "p2" "p1")
+          all-targets (concat (get-minions state "p1") (get-minions state "p2") [{:owner-id "p1" :entity-type :hero} {:owner-id "p2" :entity-type :hero}])
+          damage-distribution (take 3 (repeatedly #(rand-nth all-targets)))]
+      (reduce (fn [acc-state target]
+                (if (= (:entity-type target) :hero)
+                  (update-in acc-state [:players (:owner-id target) :hero :damage-taken] + 1)
+                  (update-in acc-state [:players (:owner-id target) :minions]
+                             (fn [minions]
+                               (mapv (fn [m] (if (= (:id m) (:id target)) (update m :damage-taken + 1) m)) minions)))))
+              state
+              damage-distribution))
+    "Stampeding Kodo"
+    (let [enemy-id (if (= (:owner-id minion) "p1") "p2" "p1")
+          enemy-minions (get-minions state enemy-id)
+          target (some #(when (<= (:attack %) 2) %) enemy-minions)]
+      (if target
+        (remove-minion state (:id target))
+        state))
+    "Twilight Drake"
+    (let [owner-id (:owner-id minion)
+          health-bonus (count (get-hand state owner-id))]
+      (update-in state [:players owner-id :minions] #(mapv (fn [m] (if (= (:id m) (:id minion)) (update m :health + health-bonus) m)) %)))
+    "Dr. Boom"
+    (let [owner-id (:owner-id minion)
+          current-minion-count (count (get-minions state owner-id))
+          ; Ensure we don't exceed the max minion count (usually 7)
+          max-minions 7
+          space-left (- max-minions current-minion-count)]
+      (if (>= space-left 2)
+        (-> state
+            (add-minion-to-board owner-id (create-minion "Boom Bot") (inc (:position minion)))
+            (add-minion-to-board owner-id (create-minion "Boom Bot") (+ 2 (:position minion))))
+        state))
+    state))
