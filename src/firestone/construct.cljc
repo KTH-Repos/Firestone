@@ -60,7 +60,7 @@
                        :entity-type                 :minion
                        :name                        name
                        :attacks-performed-this-turn 0}
-                      (select-keys definition [:attack :health :mana-cost]))]  ; Only include attack, health, mana-cost
+                      (select-keys definition [:attack :health :mana-cost :ability]))]  ; Only include attack, health, mana-cost
     (if (empty? kvs)
       minion
       (apply assoc minion kvs))))
@@ -401,6 +401,7 @@
                                                                   :entity-type                 :minion
                                                                   :name                        "Leper Gnome"
                                                                   :id                          "m1"
+                                                                  :ability                     :deathrattle
                                                                   :attack                      1
                                                                   :health                      1
                                                                   :mana-cost                   1
@@ -668,14 +669,18 @@
              ; Test removing non-existent minion
              (is= state-after-boulderfist (remove-minion state-after-boulderfist "non-existent"))))}
   [state id]
-  (let [minion (get-minion state id)]
+  (let [minion (get-minion state id)
+        owner-id (:owner-id minion)]
     (if minion
-      (let [owner-id (:owner-id minion)
-            state-after-deathrattle (trigger-deathrattle state minion)]
-        (update-in state-after-deathrattle [:players owner-id :minions]
-                   (fn [minions]
-                     (remove (fn [m] (= (:id m) id)) minions))))
+        (let [; Check if the minion has a deathrattle ability
+              state-after-deathrattle (if (= :deathrattle (:ability minion))
+                                        (trigger-deathrattle state minion)
+                                        state)]
+          (update-in state-after-deathrattle [:players owner-id :minions]
+                     (fn [minions]
+                       (remove (fn [m] (= (:id m) id)) minions))))
       state)))
+
 
 
 (defn remove-minions

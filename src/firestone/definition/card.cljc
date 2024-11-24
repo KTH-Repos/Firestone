@@ -21,6 +21,7 @@
     :type        :minion
     :set         :classic
     :rarity      :common
+    :ability     :deathrattle
     :description "Deathrattle: Deal 2 damage to the enemy hero."}
 
    "Loot Hoarder"
@@ -31,6 +32,7 @@
     :type        :minion
     :set         :classic
     :rarity      :common
+    :ability     :deathrattle
     :description "Deathrattle: Draw a card."}
 
    "Sheep"
@@ -47,6 +49,7 @@
     :attack      1
     :health      1
     :mana-cost   3
+    :ability     :stealth
     :description "Stealth. At the end of your turn, summon a 1/1 Steward."
     :rarity      :legendary
     :set         :one-night-in-karazhan
@@ -65,6 +68,7 @@
     :attack      4
     :health      4
     :mana-cost   5
+    :ability     :battlecry
     :description "Battlecry: Summon a 2/2 Squire."
     :rarity      :common
     :set         :classic
@@ -75,6 +79,7 @@
     :attack      3
     :mana-cost   5
     :health      5
+    :ability     :battlecry
     :description "Battlecry: Destroy a random enemy minion with 2 or less Attack."
     :type        :minion
     :race        :beast
@@ -86,6 +91,7 @@
     :attack      3
     :health      2
     :mana-cost   2
+    :ability     :battlecry
     :description "Battlecry: Deal 3 damage randomly split between all other characters."
     :rarity      :common
     :set         :classic
@@ -96,6 +102,7 @@
     :attack      4
     :health      1
     :mana-cost   4
+    :ability     :battlecry
     :description "Battlecry: Gain +1 Health for each card in your hand."
     :race        :dragon
     :type        :minion
@@ -107,6 +114,7 @@
     :attack      7
     :health      7
     :mana-cost   7
+    :ability     :battlecry
     :description "Battlecry: Summon two 1/1 Boom Bots. WARNING: Bots may explode."
     :rarity      :legendary
     :set         :goblins-vs-gnomes
@@ -117,6 +125,7 @@
     :attack      0
     :health      1
     :mana-cost   1
+    :ability     :stealth
     :description "Stealth. At the end of your turn give another random friendly minion +1 Health."
     :race        :demon
     :type        :minion
@@ -158,6 +167,7 @@
     :type        :minion
     :race        :mech
     :set         :goblins-vs-gnomes
+    :ability     :deathrattle
     :description "Deathrattle: Deal 1-4 damage to a random enemy."}
 
    "Steward"
