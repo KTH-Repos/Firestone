@@ -25,9 +25,9 @@
    :can-attack       true
    :health           30
    :id               (:id hero)
-   :mana             10
+   :mana              (construct/get-mana game player-id)
    :max-health       30
-   :max-mana         10
+   :max-mana         (construct/get-max-mana game player-id)
    :name             (:name hero)
    :states           []
    :valid-attack-ids []})
@@ -40,8 +40,9 @@
                                                     (construct/get-player game "p1"))))))}
   [game player]
   (let [player-id (:id player)]
-    {:board-entities []
+    {:board-entities (construct/get-minions game player-id)
      :active-secrets []
+
      :deck-size      (count (construct/get-deck game player-id))
      :hand           (construct/get-hand game player-id)
      :hero           (hero->client-hero game

@@ -33,8 +33,11 @@
                             (map (fn [player]
                                    {:hand (mapv str (or (:hand player) [])) ; Ensure :hand contains strings
                                     :deck (mapv str (or (:deck player) [])) ; Ensure :deck contains strings
-                                    :board (mapv str (or (:board player) [])) ; Ensure :board contains strings
-                                    :hero (or (:hero player) "Jaina Proudmoore")})))] ; Default hero
+                                    :minions (mapv str (or (:board player) [])) ; Ensure :board contains strings
+                                    :hero (or (:hero player) "Jaina Proudmoore")
+                                    :mana (or (:mana player) 10) ; Default mana
+                                    :max-mana (or (:max-mana player) 10)})))] ; Default extra-mana})))] ; Default hero
+
         (println "Transformed input for create-game:" game-input)
         {:status  200
          :headers (merge cors-headers {"Content-Type" "application/json"})
