@@ -1,6 +1,8 @@
 (ns firestone.definition.card
   (:require [firestone.definitions :refer [add-definitions!]]
-            [firestone.core :refer []]))
+            [firestone.core :refer [draw-card]]
+            [firestone.construct :refer [get-minions]]))
+
 
 (def card-definitions
   {
@@ -21,7 +23,9 @@
     :type        :minion
     :set         :classic
     :rarity      :common
-    :ability     :deathrattle
+    :deathrattle (fn [state minion]
+                   (let [enemy-id (if (= (:owner-id minion) "p1") "p2" "p1")]
+                     (update-in state [:players enemy-id :hero :damage-taken] + 2)))
     :description "Deathrattle: Deal 2 damage to the enemy hero."}
 
    "Loot Hoarder"
@@ -32,7 +36,8 @@
     :type        :minion
     :set         :classic
     :rarity      :common
-    :ability     :deathrattle
+    :deathrattle (fn [state & {player-id :player-id}]
+                     (draw-card state player-id))
     :description "Deathrattle: Draw a card."}
 
    "Sheep"
@@ -167,7 +172,19 @@
     :type        :minion
     :race        :mech
     :set         :goblins-vs-gnomes
-    :ability     :deathrattle
+    :deathrattle (fn [state minion]
+                   (let [enemy-id (if (= (:owner-id minion) "p1") "p2" "p1")
+                         enemy-minions (get-minions state enemy-id)]
+                     (if (seq enemy-minions)
+                       (let [target-minion (rand-nth enemy-minions)
+                             damage (rand-int 4)]
+                         (update-in state [:players enemy-id :minions]
+                                    (mapv (fn [m]
+                                            (if (= (:id m) (:id target-minion))
+                                              (update m :health - damage)
+                                              m))
+                                          enemy-minions)))
+                       state)))
     :description "Deathrattle: Deal 1-4 damage to a random enemy."}
 
    "Steward"
