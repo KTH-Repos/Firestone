@@ -1,6 +1,12 @@
 (ns firestone.definition.card
   (:require [firestone.definitions :refer [add-definitions!]]
-            [firestone.core :refer []]))
+            [firestone.core :refer []]
+            [firestone.construct :refer [create-minion
+                                         get-minions
+                                         add-minion-to-board
+                                         remove-minion
+                                         get-hand
+                                         update-minion]]))
 
 (def card-definitions
   {
@@ -72,7 +78,10 @@
     :description "Battlecry: Summon a 2/2 Squire."
     :rarity      :common
     :set         :classic
-    :type        :minion}
+    :type        :minion
+    :battlecry   (fn [state & {:keys [player-id]}]
+                   (let [squire (create-minion "Squire")]
+                     (add-minion-to-board state player-id squire (count (get-minions state player-id)))))}
 
    "Stampeding Kodo"
    {:name        "Stampeding Kodo"
@@ -84,7 +93,19 @@
     :type        :minion
     :race        :beast
     :set         :classic
-    :rarity      :rare}
+    :rarity      :rare
+    :battlecry   (fn [state & {:keys [player-id]}]
+                   (let [enemy-id (if (= player-id "p1") "p2" "p1")
+                         eligible-minions (filter #(<= (:attack %) 2) (get-minions state enemy-id))]
+                     (if (seq eligible-minions)
+                       (let [current-seed (get state :seed 1234)
+                             selected-index (mod (rand-int current-seed) (count eligible-minions))
+                             target (nth eligible-minions selected-index)
+                             new-seed (inc current-seed)]
+                         (-> state
+                             (remove-minion (:id target))
+                             (assoc :seed new-seed)))
+                       state)))}
 
    "Mad Bomber"
    {:name        "Mad Bomber"
@@ -95,7 +116,27 @@
     :description "Battlecry: Deal 3 damage randomly split between all other characters."
     :rarity      :common
     :set         :classic
-    :type        :minion}
+    :type        :minion
+    :battlecry   (fn [state minion]
+                   (let [player-id (:owner-id minion)
+                         enemy-id (if (= player-id "p1") "p2" "p1")
+                         eligible-targets (concat (get-minions state enemy-id)
+                                                  [(get-hero state enemy-id)]
+                                                  (filter #(not= (:id %) (:id minion)) (get-minions state player-id))
+                                                  [(get-hero state player-id)])
+                         current-seed (get state :seed 1234)]
+                     (-> (reduce (fn [s _]
+                                   (if (seq eligible-targets)
+                                     (let [selected-index (mod (rand-int current-seed) (count eligible-targets))
+                                           target (nth eligible-targets selected-index)
+                                           new-s (if (= (:entity-type target) :hero)
+                                                   (update-in s [:players (:owner-id target) :hero :damage-taken] inc)
+                                                   (update-minion s (:id target) :damage-taken inc))]
+                                       (update new-s :seed inc))
+                                     s))
+                                 state
+                                 (range 3))
+                         (update :seed #(+ % 3)))))}
 
    "Twilight Drake"
    {:name        "Twilight Drake"
@@ -107,7 +148,12 @@
     :race        :dragon
     :type        :minion
     :set         :classic
-    :rarity      :rare}
+    :rarity      :rare
+    :battlecry   (fn [state minion]
+                   (let [player-id (:owner-id minion)
+                         minion-id (:id minion)
+                         hand-size (count (get-hand state player-id))]
+                     (update-minion state minion-id :health #(+ % hand-size))))}
 
    "Dr. Boom"
    {:name        "Dr. Boom"
@@ -118,7 +164,20 @@
     :description "Battlecry: Summon two 1/1 Boom Bots. WARNING: Bots may explode."
     :rarity      :legendary
     :set         :goblins-vs-gnomes
-    :type        :minion}
+    :type        :minion
+    :battlecry   (fn [state minion]
+                   (let [player-id (:owner-id minion)
+                         minion-position (:position minion)
+                         ;; Create two Boom Bots
+                         boom-bot-1 (create-minion "Boom Bot")
+                         boom-bot-2 (create-minion "Boom Bot")
+                         ;; Calculate positions for the Boom Bots
+                         position-1 (inc minion-position)
+                         position-2 (inc position-1)]
+                     ;; Add Boom Bots to the board
+                     (-> state
+                         (add-minion-to-board player-id boom-bot-1 position-1)
+                         (add-minion-to-board player-id boom-bot-2 position-2))))}
 
    "Blood Imp"
    {:name        "Blood Imp"
