@@ -6,6 +6,7 @@
                                          add-minion-to-board
                                          remove-minion
                                          get-hand
+                                         get-hero
                                          update-minion]]))
 
 (def card-definitions
