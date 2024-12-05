@@ -1,12 +1,15 @@
 (ns firestone.definition.card
   (:require [firestone.definitions :refer [add-definitions!]]
-            [firestone.core :refer [draw-card]]
+            [firestone.core :refer [draw-card
+                                    remove-minion]]
             [firestone.construct :refer [create-minion
                                          get-minions
                                          add-minion-to-board
-                                         remove-minion
                                          get-hand
-                                         update-minion]]))
+                                         get-hero
+                                         update-minion
+                                         should-take-fatigue?
+                                         handle-fatigue]]))
 
 (def card-definitions
   {
@@ -41,7 +44,9 @@
     :set         :classic
     :rarity      :common
     :deathrattle (fn [state & {player-id :player-id}]
-                     (draw-card state player-id))
+                   (if (should-take-fatigue? state player-id)
+                     (handle-fatigue state player-id)
+                     (draw-card state player-id)))
     :description "Deathrattle: Draw a card."}
 
    "Sheep"
