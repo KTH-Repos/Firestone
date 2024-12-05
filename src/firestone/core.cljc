@@ -22,7 +22,11 @@
                                          trigger-deathrattle
                                          update-minion
                                          add-minion-to-board
-                                         update-hero]]))
+                                         update-hero
+                                         can-play-minion?
+                                         deduct-player-mana
+                                         remove-card-from-hand
+                                         put-card-on-board]]))
 
 
 (defn get-character
@@ -297,8 +301,33 @@
       (cond
         (= type :minion) (handle-minion-attack-on-minion state attacker-id target-id)
         (= type :hero)   (handle-minion-attack-on-hero state attacker-id target-id)
-        :else            (error "Type of the card is unrecognized")))
+        :else            (error "card doesn't exist")))
     (error "Invalid attack")))
+
+
+(defn play-card
+  "Handles playing a card by its type (minion or spell). Incorporates logic to check if the card is playable and deduct mana."
+  [state player-id card-id & {position :position target-id :target-id}]
+  ;; Retrieve the card directly within the function
+  (let [card (-> (filter (fn [x] (= (:id x) card-id))
+                         (into []
+                               (concat (get-in state [:players "p1" :hand])
+                                       (get-in state [:players "p2" :hand]))))
+                 (first))]
+    ;; Handle minion cards
+    (cond
+      (= (:type card) :minion)
+      (if (can-play-minion? state player-id card)
+        (-> (deduct-player-mana state player-id (-> (get-definition (:name card))
+                                                    (:mana-cost)))
+            (remove-card-from-hand player-id card)
+            (put-card-on-board player-id card position)))
+            ;handle battlecry
+            ;handle combo, update playable cards, update combo cards and the cards-played-this-turn key
+
+
+      ; (= (:type card) :spell)       ....implementation left for spells
+      )))
 
 
 (defn battlecry

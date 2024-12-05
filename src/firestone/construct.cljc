@@ -101,6 +101,38 @@
       minion
       (apply assoc minion kvs))))
 
+(defn convert-card-to-minion
+  "Creates a minion out of a card using the create-minion function."
+  {:test (fn []
+           (is= (-> (convert-card-to-minion (create-card "Boulderfist Ogre"))
+                    (:damage-taken))
+                0)
+           (is= (-> (convert-card-to-minion (create-card "Boulderfist Ogre"))
+                    (:entity-type))
+                :minion))}
+  [card]
+  {:pre [(map? card)]}
+  (let [definition (get-definition (:name card))
+        base-states (filter identity [(when (:stealth definition) :stealth)
+                                      (when (:deathrattle definition) :deathrattle)])]
+    (create-minion
+      (:name card)
+      :description (or (:description definition) "")
+      :mana-cost (:mana-cost definition)
+      :health (:health definition)
+      :attack (:attack definition)
+      :set (:set definition)
+      :type :minion
+      :race (:race definition)
+      :rarity (:rarity definition)
+      :class (:class definition)
+      :deathrattle (:deathrattle definition)
+      :states base-states
+      :damage-taken 0
+      :attacks-performed-this-turn 0
+      :sleepy true
+      :valid-attack-ids {})))
+
 (defn create-empty-state
   "Creates an empty state with the given heroes."
   {:test (fn []
@@ -780,6 +812,83 @@
              (fn [deck]
                (->> deck
                     (remove (fn [c] (= (:id card) (:id c))))))))
+
+(defn remove-card-from-hand
+  "Removes a specified card from the player's hand."
+  {:test (fn []
+           (let [state (-> (create-game [{:hand [(create-card "Leper Gnome" :id "c1")
+                                                 (create-card "Boulderfist Ogre" :id "c2")
+                                                 (create-card "Leper Gnome" :id "c3")]}]))
+                 card (->> (get-hand state "p1")
+                           (second))]
+             (is= (as-> state $
+                        (remove-card-from-hand $ "p1" card)
+                        (get-hand $ "p1")
+                        (map :id $))
+                  ["c1" "c3"])))}
+  [state player-id card]
+  (update-in state [:players player-id :hand]
+             (fn [hand]
+               (->> hand
+                    (remove (fn [c] (= (:id card) (:id c))))))))
+
+(defn can-play-minion?
+  "Determines if a player can play a specified minion card"
+  {:test (fn []
+           (is= (-> (create-game [{:mana 5}])
+                    (can-play-minion? "p1" (create-card "Boulderfist Ogre")))
+                false)
+           (is= (-> (create-game [{:mana 6}])
+                    (can-play-minion? "p1" (create-card "Boulderfist Ogre")))
+                true)
+           (is= (-> (create-game [{:mana 7}])
+                    (can-play-minion? "p1" (create-card "Boulderfist Ogre")))
+                true))}
+  [state player-id card]
+  {:pre [(map? state) (string? player-id) (map? card)]}
+  (and
+    ;; Check if it's the player's turn
+    (= (:player-id-in-turn state) player-id)
+
+    ;; Check if the player has fewer than 7 minions on the board
+    (< (count (get-in state [:players player-id :minions])) 7)
+
+    ;; Check if the player has enough mana to play the card
+    (<= (-> card
+            (get-definition)
+            (:mana-cost))  ;; Retrieve the card's mana cost
+        (get-in state [:players player-id :mana]))))  ;; Retrieve the player's current mana
+
+(defn deduct-player-mana
+  "Reduces a player's mana by the specified cost and returns the updated game state."
+  {:test (fn []
+           (is= (-> (create-game [{:mana 7}])
+                    (deduct-player-mana "p1" 6)
+                    (get-in [:players "p1" :mana]))
+                1))}
+  [state player-id mana-cost]
+  {:pre [(map? state) (string? player-id) (int? mana-cost)]}
+  (let [player-mana (get-in state [:players player-id :mana])
+        updated-mana (- player-mana mana-cost)]
+    (update-in state [:players player-id :mana] (constantly updated-mana))))
+
+;TODO: Extend function with reaction effects and tests
+(defn put-card-on-board
+  "Transforms a card into a minion using convert-card-to-minion and places it on the board for the specified player at the given position.
+   Handles special effects like reaction and end-of-turn effects."
+  {:test (fn []
+           (is= (let [card (create-card "Boulderfist Ogre" :id "bo")]
+                  (-> (create-game [{:hand [card]}])
+                      (put-card-on-board "p1" card 1)
+                      (get-in [:players "p1" :minions])
+                      (first)
+                      (:name)))
+                "Boulderfist Ogre"))}
+  [state player-id card position]
+  {:pre [(map? state) (string? player-id) (map? card) (int? position)]}
+  (let [minion (convert-card-to-minion card)]
+    (-> state
+        (add-minion-to-board player-id minion position))))
 
 (defn play-minion-card
   "Allows a player to play a minion card from their hand to the board if they have enough mana."
