@@ -1,6 +1,6 @@
 (ns firestone.client.kth.endpoints
   (:require [clojure.data.json :as json]
-            [firestone.construct :refer [create-game]]
+            [firestone.client.kth.edn-api :refer [create-game! end-turn! play-minion-card!]]
             [firestone.client.kth.mapper :refer [game->client-game]]))
 
 (def cors-headers {"Access-Control-Allow-Origin"  "*"
@@ -27,25 +27,26 @@
       (= uri "/create-game")
       (let [body (when (:body request)
                    (-> (:body request)
-                       (slurp)
+                       slurp
                        (json/read-str :key-fn keyword)))
-            game-input (->> (:game body) ; Extract the :game key
-                            (map (fn [player]
-                                   {:hand (mapv str (or (:hand player) [])) ; Ensure :hand contains strings
-                                    :deck (mapv str (or (:deck player) [])) ; Ensure :deck contains strings
-                                    :minions (mapv str (or (:board player) [])) ; Ensure :board contains strings
-                                    :hero (or (:hero player) "Jaina Proudmoore")
-                                    :mana (or (:mana player) 10) ; Default mana
-                                    :max-mana (or (:max-mana player) 10)})))] ; Default extra-mana})))] ; Default hero
-
-        (println "Transformed input for create-game:" game-input)
+            players-data (:game body) ; Just extract the :game key
+            result (create-game! players-data)]
         {:status  200
          :headers (merge cors-headers {"Content-Type" "application/json"})
-         :body    (-> (create-game game-input) ; Use transformed input
-                      (game->client-game)
-                      (vector)
-                      (json/write-str))})
+         :body    (json/write-str result)})
 
+      (= uri "/play-minion-card")
+      (let [body (when (:body request)
+                   (-> (:body request)
+                       slurp
+                       (json/read-str :key-fn keyword)))
+            player-id (:player-id body)
+            card-id   (:card-id body)
+            position  (:position body)
+            result    (play-minion-card! player-id card-id position)]
+        {:status  200
+         :headers (merge cors-headers {"Content-Type" "application/json"})
+         :body    (json/write-str result)})
 
       :else
       {:status  200

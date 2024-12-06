@@ -433,19 +433,38 @@
                  :counter                       5
                  :minion-ids-summoned-this-turn []}))}
   ([data & kvs]
-   (let [players-data (map-indexed (fn [index player-data]
-                                     (assoc player-data :player-id (str "p" (inc index))))
-                                   data)
+   {:pre [(vector? data)
+          (every? (fn [player]
+                    (and (map? player)
+                         (or (nil? (:hero player)) (string? (:hero player)))
+                         (or (nil? (:mana player)) (number? (:mana player)))
+                         (or (nil? (:max-mana player)) (number? (:max-mana player)))
+                         (or (nil? (:hand player))
+                             (and (vector? (:hand player))
+                                  (every? string? (map str (:hand player)))))
+                         (or (nil? (:deck player))
+                             (and (vector? (:deck player))
+                                  (every? string? (map str (:deck player)))))
+                         (or (nil? (:board player))
+                             (and (vector? (:board player))
+                                  (every? string? (map str (:board player)))))))
+                  data)]}
+   (let [players-data (map-indexed
+                        (fn [index player-data]
+                          (-> player-data
+                              (update :hand #(mapv str (or % [])))
+                              (update :deck #(mapv str (or % [])))
+                              (assoc :minions (mapv str (or (:board player-data) [])))
+                              (assoc :hero (or (:hero player-data) "Jaina Proudmoore"))
+                              (assoc :mana (or (:mana player-data) 10))
+                              (assoc :max-mana (or (:max-mana player-data) 10))
+                              (assoc :player-id (str "p" (inc index)))))
+                        data)
          state (as-> (create-empty-state (map (fn [player-data]
-                                                (cond (nil? (:hero player-data))
-                                                      (create-hero "Jaina Proudmoore")
-
-                                                      (string? (:hero player-data))
-                                                      (create-hero (:hero player-data))
-
-                                                      :else
-                                                      (:hero player-data)))
-                                              data)) $
+                                                (if (string? (:hero player-data))
+                                                  (create-hero (:hero player-data))
+                                                  (:hero player-data)))
+                                              players-data)) $
                      (reduce (fn [state {player-id :player-id
                                          minions   :minions
                                          deck      :deck
@@ -463,8 +482,8 @@
      (if (empty? kvs)
        state
        (apply assoc state kvs))))
-  ([]
-   (create-game [])))
+
+  ([] (create-game [])))
 
 
 (defn get-max-mana
@@ -783,6 +802,7 @@
         mana-cost (:mana-cost card)
         player-mana (get-in state [:players player-id :mana])]
 
+    ;TODO: Check if player has 7 cards on board or not.
     (if (and card (>= player-mana mana-cost))
       (let [minion (create-minion (:name card))]
         (-> state
@@ -790,7 +810,6 @@
             (update-in [:players player-id :hand] #(remove (fn [c] (= (:id c) card-id)) %))
             (add-minion-to-board player-id minion position)))
       state)))
-
 
 
 (defn attack-minion
