@@ -2,6 +2,7 @@
   "A namespace for the business logic of the game."
   (:require [ysera.test :refer [is is-not is=]]
             [ysera.collections :refer [seq-contains?]]
+            [ysera.error :refer [error]]
             [firestone.definitions :refer [get-definition]]
             [firestone.construct :refer [create-game
                                          create-hero
@@ -16,7 +17,9 @@
                                          handle-fatigue
                                          set-mana
                                          get-max-mana
-                                         trigger-spell]]))
+                                         trigger-spell
+                                         handle-minion-attack-on-minion
+                                         handle-minion-attack-on-hero]]))
 
 
 (defn get-character
@@ -36,6 +39,18 @@
       (some (fn [h] (when (= (:id h) id) h))
             (get-heroes state))))
 
+(defn get-entity-type
+  "Returns the damage taken by an entity (hero or minion) given its ID."
+  {:test (fn []
+           (is= (-> (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1")}])
+                    (get-entity-type "h1"))
+                :hero))}
+  [state id]
+  (let [entity (get-character state id)]
+    (cond
+      (= (:entity-type entity) :hero) :hero
+      (= (:entity-type entity) :minion) :minion
+      :else (error "Unknown entity type"))))
 
 (defn get-health
   "Returns the health of the character."
@@ -182,3 +197,15 @@
   [state player-id]
   (let [value (get-max-mana state player-id)]
     (set-mana state player-id value)))
+
+(defn attack
+  "Allows a minion to attack another minion or a hero after validating the attack."
+  [state player-id attacker-id target-id]
+  (if (valid-attack? state player-id attacker-id target-id)
+    (let [type (get-entity-type state target-id)]
+      (cond
+        (= type :minion) (handle-minion-attack-on-minion state attacker-id target-id)
+        (= type :hero)   (handle-minion-attack-on-hero state attacker-id target-id)
+        :else            (error "card doesn't exist")))
+    (error "Invalid attack")))
+

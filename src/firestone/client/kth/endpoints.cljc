@@ -1,6 +1,6 @@
 (ns firestone.client.kth.endpoints
   (:require [clojure.data.json :as json]
-            [firestone.client.kth.edn-api :refer [create-game! end-turn! play-minion-card!]]
+            [firestone.client.kth.edn-api :refer [create-game! end-turn! play-minion-card! attack!]]
             [firestone.client.kth.mapper :refer [game->client-game]]))
 
 (def cors-headers {"Access-Control-Allow-Origin"  "*"
@@ -44,6 +44,30 @@
             card-id   (:card-id body)
             position  (:position body)
             result    (play-minion-card! player-id card-id position)]
+        {:status  200
+         :headers (merge cors-headers {"Content-Type" "application/json"})
+         :body    (json/write-str result)})
+
+      (= uri "/end-turn")
+      (let [body (when (:body request)
+                   (-> (:body request)
+                       slurp
+                       (json/read-str :key-fn keyword)))
+            player-id (:player-id body)
+            result (end-turn! player-id)]
+        {:status  200
+         :headers (merge cors-headers {"Content-Type" "application/json"})
+         :body    (json/write-str result)})
+
+      (= uri "/attack")
+      (let [body (when (:body request)
+                   (-> (:body request)
+                       slurp
+                       (json/read-str :key-fn keyword)))
+            attacker-id (:attacker-id body)
+            player-id (:player-id body)
+            target-id (:target-id body)
+            result (attack! player-id attacker-id target-id)]
         {:status  200
          :headers (merge cors-headers {"Content-Type" "application/json"})
          :body    (json/write-str result)})
