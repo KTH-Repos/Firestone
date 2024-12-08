@@ -23,9 +23,9 @@
    :entity-type      :hero
    :attack           3
    :can-attack       true
-   :health           30
+   :health           (- (:health hero) (:damage-taken hero))
    :id               (:id hero)
-   :mana              (construct/get-mana game player-id)
+   :mana             (construct/get-mana game player-id)
    :max-health       30
    :max-mana         (construct/get-max-mana game player-id)
    :name             (:name hero)
@@ -35,7 +35,7 @@
 (defn player->client-player
   {:test (fn []
            (let [game (construct/create-game)]
-             (is (check-spec :firestone.client.kth.spec/player
+             (is (  check-spec :firestone.client.kth.spec/player
                              (player->client-player game
                                                     (construct/get-player game "p1"))))))}
   [game player]
@@ -59,15 +59,3 @@
                         (map (fn [player-id]
                                (player->client-player game
                                                       (construct/get-player game player-id)))))})
-
-(defn client-input->internal-game
-  "Transforms the client-provided game input into the format required by create-game."
-  [client-input]
-  (-> client-input
-      :game ; Extract the :game key
-      (map (fn [player]
-             (-> player
-                 (update :hand #(mapv str %)) ; Ensure :hand contains strings in a vector
-                 (update :deck #(mapv str %)) ; Ensure :deck contains strings in a vector
-                 (update :board #(mapv str %)) ; Ensure :board contains strings in a vector
-                 (update :hero #(or % "Jaina Proudmoore"))))))) ; Provide default hero if not specified

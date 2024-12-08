@@ -142,13 +142,19 @@
   [state player-id attacker-id target-id]
   (let [attacker (get-minion state attacker-id)
         target (get-character state target-id)]
-    (and attacker
-         target
-         (= (:player-id-in-turn state) player-id)
-         (< (:attacks-performed-this-turn attacker) 1)
-         (not (sleepy? state attacker-id))
-         (not= (:owner-id attacker) (:owner-id target)))))
-
+    (println "Attacker:" attacker)
+    (and (do (println "Attacker exists:" (boolean attacker)) attacker)
+         (do (println "Target exists:" (boolean target)) target)
+         (do (println "Correct player's turn:" (= (:player-id-in-turn state) player-id))
+             (= (:player-id-in-turn state) player-id))
+         (do (println "Attacks performed:" (:attacks-performed-this-turn attacker))
+             (< (:attacks-performed-this-turn attacker) 1))
+         (do (println "Not sleepy:" (not (sleepy? state attacker-id)))
+             (not (sleepy? state attacker-id)))
+         (do (println "Target not owned by attacker:" (not= (:owner-id target) (:player-id-in-turn state)))
+             (not= (:owner-id target) (:player-id-in-turn state)))
+         (do (println "Attacker and target have different owners:" (not= (:owner-id attacker) (:owner-id target)))
+             (not= (:owner-id attacker) (:owner-id target))))))
 
 (defn draw-card
   {:test (fn []
@@ -170,16 +176,18 @@
              (is= (get-in state [:players "p1" :hero :fatigue]) 2))
            )}
   [state player-id]
-  (let [card (first (get-deck state player-id))]
-    (if card
-      (let [state-after-draw (-> state
-                                 (remove-card-from-deck player-id card))]
-        (if (= (:type card) :spell)
-          (-> state-after-draw
-              (trigger-spell card)
-              (draw-card player-id))
-          (add-card-to-hand state-after-draw player-id card)))
-      (handle-fatigue state player-id))))
+  (let [deck (get-in state [:players player-id :deck])
+        hand (get-in state [:players player-id :hand])]
+    (if (not (empty? deck))
+      (let [drawn-card (first deck)
+            new-deck (rest deck)
+            new-hand (if (>= (count hand) 10)
+                       hand  ; Hand is full, card is burned
+                       (conj (vec hand) drawn-card))]  ; Add card to the hand
+        (-> state
+            (assoc-in [:players player-id :deck] new-deck)
+            (assoc-in [:players player-id :hand] new-hand)))
+      state)))
 
 
 (defn refresh-mana
@@ -201,6 +209,11 @@
 (defn attack
   "Allows a minion to attack another minion or a hero after validating the attack."
   [state player-id attacker-id target-id]
+  {:pre [(map? state)                     ; Ensure state is a map
+         (string? player-id)              ; Ensure player-id is a string
+         (string? attacker-id)            ; Ensure attacker-id is a string
+         (string? target-id)]}            ; Ensure target-id is a string
+  ;(println "Game state: " state)
   (if (valid-attack? state player-id attacker-id target-id)
     (let [type (get-entity-type state target-id)]
       (cond

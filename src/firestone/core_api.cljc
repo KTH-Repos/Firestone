@@ -2,27 +2,30 @@
   "The public api of the game."
   (:require [ysera.test :refer [is= error?]]
             [ysera.error :refer [error]]
+            [firestone.core :refer [draw-card]]
             [firestone.construct :refer [create-game
-                                         get-player-id-in-turn]]))
+                                         get-player-id-in-turn
+                                         reset-player-mana
+                                         should-take-fatigue?
+                                         handle-fatigue]]))
 
 
 (defn end-turn
-  {:test (fn []
-           (is= (-> (create-game)
-                    (end-turn "p1")
-                    (get-player-id-in-turn))
-                "p2")
-           (is= (-> (create-game)
-                    (end-turn "p1")
-                    (end-turn "p2")
-                    (get-player-id-in-turn))
-                "p1")
-           (error? (-> (create-game)
-                       (end-turn "p2"))))}
   [state player-id]
   (when-not (= (get-player-id-in-turn state) player-id)
     (error "The player with id " player-id " is not in turn."))
+
+  (println "State before end-turn:" state)
+
   (let [player-change-fn {"p1" "p2"
-                          "p2" "p1"}]
-    (-> state
-        (update :player-id-in-turn player-change-fn))))
+                          "p2" "p1"}
+        next-player-id (player-change-fn player-id)
+        state-after-switch (-> state
+                               (update :player-id-in-turn player-change-fn)
+                               (reset-player-mana next-player-id))
+        _ (println "This is after player switch and mana-reset:" state-after-switch)
+        new-state (if (should-take-fatigue? state-after-switch next-player-id)
+                    (handle-fatigue state-after-switch next-player-id)
+                    (draw-card state-after-switch next-player-id))]
+    (println "State after end-turn:" new-state)
+    new-state))

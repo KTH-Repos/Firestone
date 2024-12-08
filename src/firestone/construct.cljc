@@ -1,6 +1,7 @@
 (ns firestone.construct
   "A namespace for constructions and basic manipulations of the entities in the state"
   (:require [ysera.test :refer [is is-not is= error?]]
+            [ysera.error :refer [error]]
             [firestone.definitions :refer [get-definition]]))
 
 
@@ -19,7 +20,12 @@
                  :fatigue      0}))}
   ; Variadic functions [https://clojure.org/guides/learn/functions#_variadic_functions]
   [name & kvs]
-  (let [hero {:name name :entity-type :hero :damage-taken 0 :fatigue 0}]
+  (let [definition (get-definition name)
+        hero {:name         name
+              :entity-type  :hero
+              :health       (:health definition)
+              :hero-power-used false
+              :damage-taken 0}]
     (if (empty? kvs)
       hero
       (apply assoc hero kvs))))
@@ -65,11 +71,18 @@
                  :mana-cost                   1}))}
   [name & kvs]
   (let [definition (get-definition name)
-        minion (merge {:damage-taken                0
-                       :entity-type                 :minion
-                       :name                        name
-                       :attacks-performed-this-turn 0}
-                      (select-keys definition [:attack :health :mana-cost :ability]))]  ; Only include attack, health, mana-cost
+        minion {:damage-taken                0
+                :entity-type                 :minion
+                :attack                      (:attack definition)
+                :health                      (:health definition)
+                :name                        name
+                :attacks-performed-this-turn 0
+                :mana-cost                   (:mana-cost definition)
+                :max-health                  (:health definition)
+                :original-attack             (:attack definition)
+                :original-health             (:health definition)
+                :sleepy                      true
+                :valid-attack-ids            {}}]
     (if (empty? kvs)
       minion
       (apply assoc minion kvs))))
@@ -116,7 +129,7 @@
   ([heroes]
    ; Creates Jaina Proudmoore heroes if heroes are missing.
    (let [heroes (->> (concat heroes [(create-hero "Jaina Proudmoore")
-                                     (create-hero "Jaina Proudmoore")])
+                                     (create-hero "Gul'dan")])
                      (take 2))]
      {:player-id-in-turn             "p1"
       :players                       (->> heroes
@@ -503,11 +516,55 @@
   [state player-id]
   (get-in state [:players player-id :mana]))
 
-(defn increase-max-mana
+(defn set-player-mana
+  "Sets the current mana for a specified player. If mana is provided, it updates the player's mana in the state"
+  {:test (fn []
+           (is= (as-> (create-empty-state) $
+                      (set-player-mana $ "p1" 3)
+                      (get-in $ [:players "p1" :mana]))
+                3))}
+  [state player-id mana]
+  (if mana
+    (assoc-in state [:players player-id :mana] mana)
+    state))
+
+(defn set-player-max-mana
+  "Sets the maximum mana for a specified player. If max-mana is provided, it updates the player's max mana in the state."
+  {:test (fn []
+           (is= (as-> (create-empty-state) $
+                      (set-player-max-mana $ "p1" 3)
+                      (get-in $ [:players "p1" :max-mana]))
+                3))}
+  [state player-id max-mana]
+  (if max-mana
+    (assoc-in state [:players player-id :max-mana] max-mana)
+    state))
+
+(defn reset-player-mana
+  "Resets a player's mana at the end of their turn. Increases max mana by 1 if it's less than 10, and sets current mana to max mana."
+  {:test (fn []
+           ; Test case where max mana is less than 10
+           (is= (as-> (create-empty-state) $
+                      (set-player-max-mana $ "p1" 8)
+                      (set-player-mana $ "p1" 5)
+                      (reset-player-mana $ "p1")
+                      [(get-max-mana $ "p1") (get-mana $ "p1")])
+                [9 9]) ; Max mana increased to 9, current mana set to 9
+
+           ; Test case where max mana is already 10
+           (is= (as-> (create-empty-state) $
+                      (set-player-max-mana $ "p1" 10)
+                      (set-player-mana $ "p1" 5)
+                      (reset-player-mana $ "p1")
+                      [(get-max-mana $ "p1") (get-mana $ "p1")])
+                [10 10]))}
   [state player-id]
-  (update-in state [:players player-id :max-mana]
-             (fn [old-value]
-               (min (inc old-value) 10))))
+  (let [current-max-mana (get-max-mana state player-id)]
+    (if (< current-max-mana 10)
+      (-> state
+          (set-player-max-mana player-id (inc current-max-mana)) ; Increase max mana by 1
+          (set-player-mana player-id (inc current-max-mana)))   ; Set current mana to the new max
+      (set-player-mana state player-id current-max-mana))))     ; If max mana is 10, set current mana to max mana
 
 
 (defn get-minion
@@ -621,6 +678,24 @@
                              (assoc minion key function-or-value))]
         (replace-minion state updated-minion))
       state)))
+
+(defn should-take-fatigue?
+  "Returns truthy if the player should take fatigue damage (i.e., their deck is empty), falsey otherwise."
+  {:test (fn []
+           ;; Test when the deck is empty
+           (let [state (create-game)]
+             (is (should-take-fatigue? state "p1")))
+           ;; Test when the deck has one card
+           (let [state (-> (create-game)
+                           (add-card-to-deck "p1" "Leper Gnome"))]
+             (is-not (should-take-fatigue? state "p1")))
+           ;; Test when the deck has multiple cards
+           (let [state (-> (create-game)
+                           (add-card-to-deck "p1" "Leper Gnome")
+                           (add-card-to-deck "p1" "Boulderfist Ogre"))]
+             (is-not (should-take-fatigue? state "p1"))))}
+  [state player-id]
+  (empty? (get-in state [:players player-id :deck])))
 
 (defn handle-fatigue
   "Handles fatigue when a player's deck is empty, and they need to draw a card.
@@ -1199,6 +1274,7 @@
   [state id]
   (let [minion (get-minion state id)
         definition (get-definition minion)]
+    (println "definition of minion " definition)
     (:attack definition)))
 
 (defn mark-minion-attacked
@@ -1230,6 +1306,14 @@
                  (update hero key function-or-value)
                  (assoc hero key function-or-value)))))
 
+(defn get-player-id-by-hero-id
+  "Returns the player ID that owns the hero with the given hero ID."
+  [state hero-id]
+  (some (fn [[player-id player-data]]
+          (when (= (:id (:hero player-data)) hero-id)
+            player-id))
+        (:players state)))
+
 
 ;TODO: Handle stealth
 (defn handle-minion-attack-on-minion
@@ -1250,8 +1334,23 @@
 (defn handle-minion-attack-on-hero
   "Handles the attack logic when a minion attacks a hero."
   [state attacker-id target-id]
-  (as-> (update-hero state target-id :damage-taken #(+ % (get-attack state attacker-id))) $
-        (mark-minion-attacked $ attacker-id)))
+  (println "gamestate before attack on hero" state)
+  (let [player-id (get-player-id-by-hero-id state target-id)] ; Retrieve player ID based on hero ID
+    (if player-id
+      (let [attack-value (get-attack state attacker-id)]
+        (if (nil? attack-value)
+          (do
+            ;(println "Attack value is nil for attacker-id:" attacker-id)
+            (error "Invalid attack value."))
+          (let [updated-state (update-hero state player-id :damage-taken #(+ % attack-value))]
+            ;(println "gamestate after attack on hero" updated-state)
+            (mark-minion-attacked updated-state attacker-id))))
+      (do
+        (println "Player owning the target hero not found for hero-id:" target-id)
+        (error "Player owning the target hero not found.")))))
+
+
+
 
 
 

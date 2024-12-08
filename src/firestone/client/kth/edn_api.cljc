@@ -24,6 +24,6 @@
     [(mapper/game->client-game state)]))
 
 (defn attack!
-  [attacker-id player-id target-id]
+  [player-id attacker-id target-id]
   (let [state (swap! state-atom attack player-id attacker-id target-id)]
     [(mapper/game->client-game state)]))
