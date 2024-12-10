@@ -973,34 +973,6 @@
         (add-minion-to-board player-id minion position))))
 
 
-
-(defn play-minion-card
-  "Handles playing a card by its type (minion or spell). Incorporates logic to check if the card is playable and deduct mana."
-  [state player-id card-id position]
-  ;; Retrieve the card directly within the function
-  (let [card (-> (filter (fn [x] (= (:id x) card-id))
-                         (into []
-                               (concat (get-in state [:players "p1" :hand])
-                                       (get-in state [:players "p2" :hand]))))
-                 (first))]
-    ;; Handle minion cards
-    (cond
-      (= (:type card) :minion)
-      (if (can-play-minion? state player-id card)
-        (-> (deduct-player-mana state player-id (-> (get-definition (:name card))
-                                                    (:mana-cost)))
-            (remove-card-from-hand player-id card)
-            (put-card-on-board player-id card position)))
-      ;handle battlecry
-      ;handle combo, update playable cards, update combo cards and the cards-played-this-turn key
-
-
-      ; (= (:type card) :spell)       ....implementation left for spells
-      )))
-
-
-
-
 (defn play
   "Allows a player to play a minion card from their hand to the board if they have enough mana."
   {:test (fn []
@@ -1314,21 +1286,42 @@
             player-id))
         (:players state)))
 
+(defn trigger-minion-damaged
+  "Triggers the :minion-damaged event for a specific minion."
+  [state minion-id]
+  (let [minion (get-minion state minion-id)]
+    (if minion
+      (let [handler (:on-minion-damaged minion)]
+        (if handler
+          (handler state minion)
+          state))
+      state)))
 
 ;TODO: Handle stealth
 (defn handle-minion-attack-on-minion
-  "Handles the attack logic when a minion attacks another minion."
+  "Handles the attack logic when a minion attacks another minion, including event dispatching."
   [state attacker-id target-id]
-  (as-> state $
-        ;; Apply damage to the target and attacker minion
-        (update-minion $ target-id :damage-taken #(+ % (get-attack state attacker-id)))
-        (update-minion $ attacker-id :damage-taken #(+ % (get-attack state target-id)))
-        ;; Remove attacker minion if its health is zero or less
-        (remove-minion $ attacker-id)
-        ;; Remove target minion if its health is zero or less
-        (remove-minion $ target-id)
-        ;; Mark the attacker as having attacked this turn
-        (mark-minion-attacked $ attacker-id)))
+  (let [attacker (get-minion state attacker-id)
+        target (get-minion state target-id)]
+    (if (and attacker target)
+      (let [attacker-damage (:attack attacker)
+            target-damage (:attack target)
+            state-after-attack (-> state
+                                   (update-minion attacker-id :health #(- % target-damage))
+                                   (update-minion target-id :health #(- % attacker-damage))
+                                   (update-minion attacker-id :attacks-performed-this-turn inc))]
+        ;; Dispatch :minion-damaged for attacker and target
+        (-> state-after-attack
+            (trigger-minion-damaged attacker-id)
+            (trigger-minion-damaged target-id)
+            ;; Remove minions with health <= 0
+            (cond-> (and (get-minion state-after-attack attacker-id)
+                         (<= (:health (get-minion state-after-attack attacker-id)) 0))
+                    (remove-minion attacker-id))
+            (cond-> (and (get-minion state-after-attack target-id)
+                         (<= (:health (get-minion state-after-attack target-id)) 0))
+                    (remove-minion target-id))))
+      state)))
 
 ;TODO: Handle stealth
 (defn handle-minion-attack-on-hero
@@ -1348,12 +1341,3 @@
       (do
         (println "Player owning the target hero not found for hero-id:" target-id)
         (error "Player owning the target hero not found.")))))
-
-
-
-
-
-
-
-
-

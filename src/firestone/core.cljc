@@ -19,7 +19,11 @@
                                          get-max-mana
                                          trigger-spell
                                          handle-minion-attack-on-minion
-                                         handle-minion-attack-on-hero]]))
+                                         handle-minion-attack-on-hero
+                                         can-play-minion?
+                                         deduct-player-mana
+                                         remove-card-from-hand
+                                         put-card-on-board]]))
 
 
 (defn get-character
@@ -222,3 +226,68 @@
         :else            (error "card doesn't exist")))
     (error "Invalid attack")))
 
+(defn play-spell
+  "Applies the effects of playing a given spell card."
+  [state player-id card]
+  (let [enemy-id (if (= player-id "p1") "p2" "p1")]
+    (cond
+      ;; Consecration: Deal 2 damage to all enemies (opponent's hero and all their minions).
+      (= (:name card) "Consecration")
+      (-> state
+          ;; Damage enemy hero by 2
+          (update-in [:players enemy-id :hero :damage-taken] (fnil + 0) 2)
+          ;; Damage each enemy minion by 2
+          (update-in [:players enemy-id :board]
+                     (fn [board]
+                       (mapv #(update % :damage-taken (fnil + 0) 2) board))))
+
+      ;; Equality: Change the Health of ALL minions to 1.
+      (= (:name card) "Equality")
+      (letfn [(set-minion-health-to-one [board]
+                (mapv (fn [m]
+                        (let [max-health (-> (get-definition (:name m)) :health)]
+                          ;; Adjust damage-taken so current health = 1
+                          (assoc m :damage-taken (max 0 (dec max-health)))))
+                      board))]
+        (-> state
+            (update-in [:players "p1" :board] set-minion-health-to-one)
+            (update-in [:players "p2" :board] set-minion-health-to-one)))
+
+      ;; Feign Death: Trigger all Deathrattles on your minions.
+      (= (:name card) "Feign Death")
+      (let [player-minions (get-in state [:players player-id :board])
+            with-deathrattles (filter :deathrattle player-minions)]
+        (reduce (fn [acc-state minion]
+                  ((:deathrattle minion) acc-state minion))
+                state
+                with-deathrattles))
+
+      state)))
+
+
+(defn play-card
+  "Handles playing a card by its type (minion or spell). Incorporates logic to check if the card is playable and deduct mana."
+  [state player-id card-id position]
+  ;; Retrieve the card directly within the function
+  (let [card (-> (filter (fn [x] (= (:id x) card-id))
+                         (into []
+                               (concat (get-in state [:players "p1" :hand])
+                                       (get-in state [:players "p2" :hand]))))
+                 (first))]
+    ;; Handle minion cards
+    (cond
+      (= (:type card) :minion)
+      (if (can-play-minion? state player-id card)
+        (-> (deduct-player-mana state player-id (-> (get-definition (:name card))
+                                                    (:mana-cost)))
+            (remove-card-from-hand player-id card)
+            (put-card-on-board player-id card position)))
+      ;handle battlecry
+      ;handle combo, update playable cards, update combo cards and the cards-played-this-turn key
+
+      (= (:type card) :spell)
+      (-> state
+          (remove-card-from-hand player-id card)
+          (play-spell player-id card)
+          (draw-card player-id))
+      )))
