@@ -253,8 +253,163 @@
     :type          :minion
     :set           :one-night-in-karazhan}
 
+   "Shadow Sensei"
+   {:name        "Shadow Sensei"
+    :attack      4
+    :health      4
+    :mana-cost   4
+    :type        :minion
+    :class       :rogue
+    :set         :mean-streets-of-gadgetzan
+    :rarity      :rare
+    :description "Battlecry: Give a Stealthed minion +2/+2."
+    :battlecry   (fn [state player-id minion]
+                   (let [board-path [:players player-id :board]
+                         board (get-in state board-path)]
+                     (if-let [stealth-index (->> board
+                                                 (map-indexed vector)
+                                                 (some (fn [[i m]]
+                                                         (when (= (:ability m) :stealth)
+                                                           i))))]
+                       ;; Found a stealthed minion at stealth-index. Update its stats.
+                       (update-in state (conj board-path stealth-index)
+                                  (fn [m]
+                                    (-> m
+                                        (update :attack + 2)
+                                        (update :health + 2))))
+                       ;; No stealthed minion found; return state unchanged.
+                       state)))}
 
+   "Alexstrasza"
+   {:name        "Alexstrasza"
+    :attack      8
+    :mana-cost   9
+    :health      8
+    :race        :dragon
+    :type        :minion
+    :set         :classic
+    :rarity      :legendary
+    :description "Battlecry: Set a hero's remaining Health to 15."
+    :battlecry   (fn [state player-id]
+                   (let [enemy-id (if (= player-id "p1") "p2" "p1")]
+                     (assoc-in state [:players enemy-id :hero :health] 15)))}
 
+   "Knife Juggler"
+   {:name        "Knife Juggler"
+    :attack      3
+    :health      2
+    :mana-cost   2
+    :rarity      :rare
+    :set         :classic
+    :type        :minion
+    :description "After you summon a minion, deal 1 damage to a random enemy."
+    :on-minion-summon (fn [state player-id]
+                        (let [enemy-id (if (= player-id "p1") "p2" "p1")
+                              enemy-hero (get-in state [:players enemy-id :hero])
+                              enemy-board (get-in state [:players enemy-id :board])
+
+                              ;; Targets: enemy hero + all enemy minions
+                              possible-targets (concat
+                                                 [{:entity-type :hero :owner-id enemy-id}]
+                                                 (map (fn [m] (assoc m :entity-type :minion)) enemy-board))
+
+                              current-seed (get state :seed 1234)
+
+                              ;; Determine the index of the chosen target using the seed
+                              selected-index (mod (rand-int current-seed) (count possible-targets))
+                              target (nth possible-targets selected-index)]
+
+                          (-> (if (= (:entity-type target) :hero)
+                                ;; Deal 1 damage to the enemy hero
+                                (update-in state [:players (:owner-id target) :hero :damage-taken]
+                                           (fnil inc 0))
+                                ;; Deal 1 damage to an enemy minion
+                                (let [target-id (:id target)
+                                      updated-board (mapv (fn [m]
+                                                            (if (= (:id m) target-id)
+                                                              (update m :damage-taken (fnil inc 0))
+                                                              m))
+                                                          enemy-board)]
+                                  (assoc-in state [:players enemy-id :board] updated-board)))
+                              ;; Increment the seed so the next random choice differs
+                              (update :seed inc))))}
+
+   "Questing Adventurer"
+   {:name        "Questing Adventurer"
+    :attack      2
+    :health      2
+    :mana-cost   3
+    :rarity      :rare
+    :set         :classic
+    :type        :minion
+    :description "Whenever you play a card, gain +1/+1."
+    :on-minion-summon (fn [state player-id played-card]
+                      ;; For every Questing Adventurer on the player's board, increase its attack and health by 1.
+                      (update-in state [:players player-id :board]
+                                 (fn [board]
+                                   (mapv (fn [m]
+                                           (if (= (:name m) "Questing Adventurer")
+                                             (-> m
+                                                 (update :attack + 1)
+                                                 (update :health + 1))
+                                             m))
+                                         board))))}
+
+   "Dire Wolf Alpha"
+   {:name        "Dire Wolf Alpha"
+    :attack      2
+    :health      2
+    :mana-cost   2
+    :set         :classic
+    :race        :beast
+    :type        :minion
+    :rarity      :common
+    :description "Adjacent minions have +1 Attack."
+    :on-minion-summon (fn [state player-id]
+                        (let [board-path [:players player-id :board]
+                              board (get-in state board-path)]
+                        (reduce (fn [acc-state [i m]]
+                               (if (= (:name m) "Dire Wolf Alpha")
+                                 (let [left-i (dec i)
+                                       right-i (inc i)
+                                       ;; Increase attack of left neighbor if it exists
+                                       acc-state (if (and (>= left-i 0) (< left-i (count board)))
+                                                   (update-in acc-state (conj board-path left-i :attack) inc)
+                                                   acc-state)
+                                       ;; Increase attack of right neighbor if it exists
+                                       acc-state (if (and (>= right-i 0) (< right-i (count board)))
+                                                   (update-in acc-state (conj board-path right-i :attack) inc)
+                                                   acc-state)]
+                                   acc-state)
+                                 acc-state))
+                             state
+                             (map-indexed vector board))))}
+
+   (defn frothing-berserker
+     "Defines the Frothing Berserker minion with its ability."
+     []
+     {:name        "Frothing Berserker"
+      :mana-cost   3
+      :health      4
+      :attack      2
+      :type        :minion
+      :class       :warrior
+      :set         :classic
+      :rarity      :rare
+      :description "Whenever a minion takes damage, gain +1 Attack."
+      :on-minion-damaged (fn [state _damaged-minion]
+                           ;; Iterate over both players to find all Frothing Berserkers
+                           (let [players ["p1" "p2"]]
+                             (reduce (fn [s player-id]
+                                       (update-in s [:players player-id :board]
+                                                  (fn [board]
+                                                    (mapv (fn [m]
+                                                            (if (= (:name m) "Frothing Berserker")
+                                                              (update m :attack inc)
+                                                              m))
+                                                          board))))
+                                     state
+                                     players)))})
    })
 
 (add-definitions! card-definitions)
