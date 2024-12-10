@@ -9,23 +9,35 @@
   "Creates a hero from its definition by the given hero name. The additional key-values will override the default values."
   {:test (fn []
            (is= (create-hero "Jaina Proudmoore")
-                {:name         "Jaina Proudmoore"
-                 :entity-type  :hero
-                 :damage-taken 0
-                 :fatigue      0})
-           (is= (create-hero "Jaina Proudmoore" :damage-taken 10)
-                {:name         "Jaina Proudmoore"
-                 :entity-type  :hero
-                 :damage-taken 10
-                 :fatigue      0}))}
-  ; Variadic functions [https://clojure.org/guides/learn/functions#_variadic_functions]
+                {:name             "Jaina Proudmoore"
+                 :entity-type      :hero
+                 :health           30
+                 :hero-power       "Fireblast"
+                 :hero-power-used  false
+                 :power            (:power (get-definition "Fireblast"))
+                 :damage-taken     0
+                 :fatigue          0})
+           (is= (create-hero "Gul'dan" :damage-taken 10)
+                {:name             "Gul'dan"
+                 :entity-type      :hero
+                 :health           30
+                 :hero-power       "Life Tap"
+                 :hero-power-used  false
+                 :power            (:power (get-definition "Life Tap"))
+                 :damage-taken     10
+                 :fatigue          0}))}
   [name & kvs]
   (let [definition (get-definition name)
-        hero {:name         name
-              :entity-type  :hero
-              :health       (:health definition)
-              :hero-power-used false
-              :damage-taken 0}]
+        hero-power-name (:hero-power definition)
+        power-fn (:power (get-definition hero-power-name))
+        hero {:name             name
+              :entity-type      :hero
+              :health           (:health definition)
+              :hero-power       hero-power-name
+              :hero-power-used  false
+              :power            power-fn
+              :damage-taken     0
+              :fatigue          0}]
     (if (empty? kvs)
       hero
       (apply assoc hero kvs))))
@@ -830,44 +842,6 @@
                (->> deck
                     (remove (fn [c] (= (:id card) (:id c))))))))
 
-(declare trigger-stealth)
-(defn end-turn
-  "Ends the current player's turn, switches to the next player, sets their mana to 10, handles card draw or fatigue, and triggers stealth effects."
-  {:test (fn []
-           (let [initial-state (create-game [{:deck ["Card1" "Card2"] :mana 5}
-                                             {:deck ["Card3"] :mana 7}])
-                 state-after-first-turn (end-turn initial-state)
-                 state-after-second-turn (end-turn state-after-first-turn)]
-             ; Test first turn end
-             (is= (get-player-id-in-turn state-after-first-turn) "p2")
-             (is= (get-in state-after-first-turn [:players "p2" :mana]) 10)
-             (is= (count (get-hand state-after-first-turn "p2")) 1)
-             (is= (count (get-deck state-after-first-turn "p2")) 0)
-             ; Test second turn end
-             (is= (get-player-id-in-turn state-after-second-turn) "p1")
-             (is= (get-in state-after-second-turn [:players "p1" :mana]) 10)
-             (is= (count (get-hand state-after-second-turn "p1")) 1)
-             (is= (count (get-deck state-after-second-turn "p1")) 1)
-             ; Test fatigue
-             (let [fatigue-state (end-turn state-after-second-turn)]
-               (is= (get-in fatigue-state [:players "p2" :hero :fatigue]) 1)
-               (is= (get-in fatigue-state [:players "p2" :hero :damage-taken]) 1))))}
-  [state]
-  (let [current-player (:player-id-in-turn state)
-        next-player (if (= current-player "p1") "p2" "p1")
-        stealth-minions (filter #(= (:ability %) :stealth) (get-minions state current-player))]
-    (-> state
-        (assoc :player-id-in-turn next-player)
-        (assoc-in [:players next-player :mana] 10)
-        (cond->
-          (empty? (get-deck state next-player)) (handle-fatigue next-player)
-          (not-empty (get-deck state next-player)) (-> (update-in [:players next-player :hand] conj (first (get-deck state next-player)))
-                                                       (update-in [:players next-player :deck] rest)))
-        ((fn [s]
-           (reduce (fn [s minion]
-                     (trigger-stealth s (:id minion)))
-                   s
-                   stealth-minions))))))
 
 (defn remove-card-from-hand
   "Removes a specified card from the player's hand."
@@ -973,6 +947,32 @@
         (add-minion-to-board player-id minion position))))
 
 
+
+(defn play-minion-card
+  "Handles playing a card by its type (minion or spell). Incorporates logic to check if the card is playable and deduct mana."
+  [state player-id card-id position]
+  ;; Retrieve the card directly within the function
+  (let [card (-> (filter (fn [x] (= (:id x) card-id))
+                         (into []
+                               (concat (get-in state [:players "p1" :hand])
+                                       (get-in state [:players "p2" :hand]))))
+                 (first))]
+    ;; Handle minion cards
+    (cond
+      (= (:type card) :minion)
+      (if (can-play-minion? state player-id card)
+        (-> (deduct-player-mana state player-id (-> (get-definition (:name card))
+                                                    (:mana-cost)))
+            (remove-card-from-hand player-id card)
+            (put-card-on-board player-id card position)))
+      ;handle battlecry
+      ;handle combo, update playable cards, update combo cards and the cards-played-this-turn key
+
+
+      ; (= (:type card) :spell)       ....implementation left for spells
+      )))
+
+
 (defn play
   "Allows a player to play a minion card from their hand to the board if they have enough mana."
   {:test (fn []
@@ -997,75 +997,6 @@
             (update-in [:players player-id :hand] #(remove (fn [c] (= (:id c) card-id)) %))
             (add-minion-to-board player-id minion position)))
       state)))
-
-
-(defn attack-minion
-  "Allows a minion to attack an enemy minion, dealing damage to both."
-  {:test (fn []
-           ; Test case where the attacker is killed in the attack
-           (let [initial-state (-> (create-game [{:minions [(create-minion "Sheep" :id "m1" :attack 1 :health 1)]}
-                                                 {:minions [(create-minion "Boulderfist Ogre" :id "m2" :attack 6 :health 7)]}])
-                                   (attack-minion "m1" "m2"))]
-             (is= (get-minion initial-state "m1") nil)
-             (is= (get-in (get-minion initial-state "m2") [:health]) 6))
-           ; Test case where the target is killed in the attack
-           (let [initial-state (-> (create-game [{:minions [(create-minion "Boulderfist Ogre" :id "m1" :attack 6 :health 7)]}
-                                                 {:minions [(create-minion "Sheep" :id "m2" :attack 1 :health 1)]}])
-                                   (attack-minion "m1" "m2"))]
-             (is= (get-minion initial-state "m2") nil)
-             (is= (get-in (get-minion initial-state "m1") [:health]) 6))
-           ; Test case where both minions survive the attack
-           (let [initial-state (-> (create-game [{:minions [(create-minion "Sheep" :id "m1" :attack 1 :health 10)]}
-                                                 {:minions [(create-minion "Boulderfist Ogre" :id "m2" :attack 6 :health 10)]}])
-                                   (attack-minion "m1" "m2"))]
-             (is= (get-in (get-minion initial-state "m1") [:health]) 4)
-             (is= (get-in (get-minion initial-state "m2") [:health]) 9)))}
-  [state attacker-id target-id]
-  (let [attacker (get-minion state attacker-id)
-        target (get-minion state target-id)]
-    (if (and attacker target)
-      (let [attacker-damage (:attack attacker)
-            target-damage (:attack target)
-            state-after-attack (-> state
-                                   (update-minion attacker-id :health #(- % target-damage))
-                                   (update-minion target-id :health #(- % attacker-damage))
-                                   (update-minion attacker-id :attacks-performed-this-turn inc))]
-        (cond-> state-after-attack
-                (<= (:health (get-minion state-after-attack attacker-id)) 0)
-                (remove-minion attacker-id)
-
-                (<= (:health (get-minion state-after-attack target-id)) 0)
-                (remove-minion target-id)))
-      state)))
-
-
-(defn attack-hero
-  "Allows a minion to attack the enemy hero, dealing damage directly to the hero."
-  {:test (fn []
-           ; Test where the hero takes damage and survives
-           (let [initial-state (-> (create-game [{:minions [(create-minion "Leper Gnome" :id "m1" :attack 2)]}
-                                                 {:hero (create-hero "Gul'dan" :id "h2" :health 10)}])
-                                   (attack-hero "m1" "p2"))]
-             (is= (get-in initial-state [:players "p2" :hero :health]) 8)
-             (is (not (:game-over initial-state))))
-           ; Test where the hero's health reaches zero, ending the game
-           (let [initial-state (-> (create-game [{:minions [(create-minion "Boulderfist Ogre" :id "m1" :attack 10)]}
-                                                 {:hero (create-hero "Gul'dan" :id "h2" :health 10)}])
-                                   (attack-hero "m1" "p2"))]
-             (is= (get-in initial-state [:players "p2" :hero :health]) 0)
-             (is (:game-over initial-state))))}
-  [state attacker-id player-id]
-  (let [attacker (get-minion state attacker-id)]
-    (if attacker
-      (let [attack-damage (:attack attacker)
-            updated-state (-> state
-                              (update-in [:players player-id :hero :health] #(max 0 (- % attack-damage)))
-                              (update-minion attacker-id :attacks-performed-this-turn inc))]
-        (if (<= (get-in updated-state [:players player-id :hero :health] 0) 0)
-          (assoc updated-state :game-over true)
-          updated-state))
-      state)))
-
 
 (defn battlecry
   "Triggers the Battlecry effect of a minion"
@@ -1297,6 +1228,18 @@
           state))
       state)))
 
+(defn trigger-minion-damaged
+  "Triggers the :minion-damaged event for a specific minion."
+  [state minion-id]
+  (let [minion (get-minion state minion-id)]
+    (if minion
+      (let [handler (:on-minion-damaged minion)]
+        (if handler
+          (handler state minion)
+          state))
+      state)))
+
+;TODO: Handle stealth
 ;TODO: Handle stealth
 (defn handle-minion-attack-on-minion
   "Handles the attack logic when a minion attacks another minion, including event dispatching."
@@ -1341,3 +1284,50 @@
       (do
         (println "Player owning the target hero not found for hero-id:" target-id)
         (error "Player owning the target hero not found.")))))
+
+(defn use-hero-power
+  "Allows a player to use their hero power.
+   - For Jaina Proudmoore's Fireblast, a target-id must be provided.
+   - For Gul'dan's Life Tap, no target is needed.
+   Ensures the hero power is used only once per turn.
+   Returns the updated state."
+  [state player-id & [target-id]]
+  (let [hero (:hero (get-player state player-id))
+        power-name (:hero-power hero)
+        power-def (get-definition power-name) ;; Retrieves from hero-power-definitions
+        current-mana (get-mana state player-id)]
+    (cond
+      ;; Check if hero power is already used this turn
+      (:hero-power-used hero)
+      (do
+        (println "Hero power has already been used this turn.")
+        state)
+
+      ;; Check if player has enough mana
+      (< current-mana (:mana-cost power-def))
+      (do
+        (println "Not enough mana to use hero power.")
+        state)
+
+      :else
+      (let [power-fn (:power power-def)
+            state-after-mana (deduct-player-mana state player-id (:mana-cost power-def))
+            ;; Invoke the power function with appropriate arguments
+            state-after-use (cond
+                              (= power-name "Fireblast")
+                              (if target-id
+                                (power-fn state-after-mana target-id)
+                                (do
+                                  (println "Fireblast requires a target.")
+                                  state-after-mana))
+
+                              (= power-name "Life Tap")
+                              (power-fn state-after-mana player-id)
+
+                              :else
+                              (do
+                                (println "Unknown hero power.")
+                                state-after-mana))
+            ;; Mark hero power as used
+            updated-state (assoc-in state-after-use [:players player-id :hero :hero-power-used] true)]
+        updated-state))))

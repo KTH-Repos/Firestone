@@ -21,11 +21,13 @@
                           "p2" "p1"}
         next-player-id (player-change-fn player-id)
         state-after-switch (-> state
-                               (update :player-id-in-turn player-change-fn)
+                               (assoc :player-id-in-turn next-player-id)
                                (reset-player-mana next-player-id))
         _ (println "This is after player switch and mana-reset:" state-after-switch)
-        new-state (if (should-take-fatigue? state-after-switch next-player-id)
-                    (handle-fatigue state-after-switch next-player-id)
-                    (draw-card state-after-switch next-player-id))]
-    (println "State after end-turn:" new-state)
-    new-state))
+        state-after-draw (if (should-take-fatigue? state-after-switch next-player-id)
+                           (handle-fatigue state-after-switch next-player-id)
+                           (draw-card state-after-switch next-player-id))
+        ;; Reset hero-power-used flag for the next player
+        final-state (assoc-in state-after-draw [:players next-player-id :hero :hero-power-used] false)]
+    (println "State after end-turn:" final-state)
+    final-state))

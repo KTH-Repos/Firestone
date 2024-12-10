@@ -42,7 +42,7 @@
     :set         :classic
     :rarity      :common
     :deathrattle (fn [state & {player-id :player-id}]
-                     (draw-card state player-id))
+                   (draw-card state player-id))
     :description "Deathrattle: Draw a card."}
 
    "Sheep"
@@ -344,16 +344,16 @@
     :type        :minion
     :description "Whenever you play a card, gain +1/+1."
     :on-minion-summon (fn [state player-id played-card]
-                      ;; For every Questing Adventurer on the player's board, increase its attack and health by 1.
-                      (update-in state [:players player-id :board]
-                                 (fn [board]
-                                   (mapv (fn [m]
-                                           (if (= (:name m) "Questing Adventurer")
-                                             (-> m
-                                                 (update :attack + 1)
-                                                 (update :health + 1))
-                                             m))
-                                         board))))}
+                        ;; For every Questing Adventurer on the player's board, increase its attack and health by 1.
+                        (update-in state [:players player-id :board]
+                                   (fn [board]
+                                     (mapv (fn [m]
+                                             (if (= (:name m) "Questing Adventurer")
+                                               (-> m
+                                                   (update :attack + 1)
+                                                   (update :health + 1))
+                                               m))
+                                           board))))}
 
    "Dire Wolf Alpha"
    {:name        "Dire Wolf Alpha"
@@ -368,22 +368,22 @@
     :on-minion-summon (fn [state player-id]
                         (let [board-path [:players player-id :board]
                               board (get-in state board-path)]
-                        (reduce (fn [acc-state [i m]]
-                               (if (= (:name m) "Dire Wolf Alpha")
-                                 (let [left-i (dec i)
-                                       right-i (inc i)
-                                       ;; Increase attack of left neighbor if it exists
-                                       acc-state (if (and (>= left-i 0) (< left-i (count board)))
-                                                   (update-in acc-state (conj board-path left-i :attack) inc)
-                                                   acc-state)
-                                       ;; Increase attack of right neighbor if it exists
-                                       acc-state (if (and (>= right-i 0) (< right-i (count board)))
-                                                   (update-in acc-state (conj board-path right-i :attack) inc)
-                                                   acc-state)]
-                                   acc-state)
-                                 acc-state))
-                             state
-                             (map-indexed vector board))))}
+                          (reduce (fn [acc-state [i m]]
+                                    (if (= (:name m) "Dire Wolf Alpha")
+                                      (let [left-i (dec i)
+                                            right-i (inc i)
+                                            ;; Increase attack of left neighbor if it exists
+                                            acc-state (if (and (>= left-i 0) (< left-i (count board)))
+                                                        (update-in acc-state (conj board-path left-i :attack) inc)
+                                                        acc-state)
+                                            ;; Increase attack of right neighbor if it exists
+                                            acc-state (if (and (>= right-i 0) (< right-i (count board)))
+                                                        (update-in acc-state (conj board-path right-i :attack) inc)
+                                                        acc-state)]
+                                        acc-state)
+                                      acc-state))
+                                  state
+                                  (map-indexed vector board))))}
 
    (defn frothing-berserker
      "Defines the Frothing Berserker minion with its ability."
