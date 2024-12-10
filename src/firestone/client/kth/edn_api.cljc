@@ -1,7 +1,7 @@
 (ns firestone.client.kth.edn-api
-  (:require [firestone.construct :refer [create-game
-                                         play-minion-card]]
-            [firestone.core :refer  [attack]]
+  (:require [firestone.construct :refer [create-game]]
+            [firestone.core :refer  [attack
+                                     play-card]]
             [firestone.core-api :as engine-api]
             [firestone.definitions-loader]
             [firestone.client.kth.mapper :as mapper]))
@@ -20,7 +20,7 @@
 
 (defn play-minion-card!
   [player-id card-id position]
-  (let [state (swap! state-atom play-minion-card player-id card-id position)]
+  (let [state (swap! state-atom play-card player-id card-id position)]
     [(mapper/game->client-game state)]))
 
 (defn attack!
