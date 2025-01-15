@@ -721,11 +721,11 @@
              (is= (get-in state-after-second-fatigue [:players "p1" :hero :damage-taken]) 3)
              (is= (get-in state-after-second-fatigue [:players "p1" :hero :fatigue]) 2)))}
   [state player-id]
-  (let [current-fatigue (get-in state [:players player-id :hero :fatigue] 0)
-        new-fatigue (inc current-fatigue)]
+  {:pre [(map? state) (string? player-id)]}
+  (let [current-fatigue (get-in state [:players player-id :hero :fatigue])]
     (-> state
-        (update-in [:players player-id :hero :damage-taken] + new-fatigue)
-        (assoc-in [:players player-id :hero :fatigue] new-fatigue))))
+        (update-in [:players player-id :hero :damage-taken] + (inc current-fatigue))
+        (update-in [:players player-id :hero :fatigue] inc))))
 
 (defn trigger-deathrattle
   "Triggers the Deathrattle effect of a minion"

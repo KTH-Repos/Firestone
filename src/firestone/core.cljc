@@ -23,7 +23,8 @@
                                          can-play-minion?
                                          deduct-player-mana
                                          remove-card-from-hand
-                                         put-card-on-board]]))
+                                         put-card-on-board
+                                         update-minion]]))
 
 
 (defn get-character
@@ -262,7 +263,7 @@
                 state
                 with-deathrattles))
 
-      state)))
+      :else state)))
 
 
 (defn play-card
@@ -291,3 +292,16 @@
           (play-spell player-id card)
           (draw-card player-id))
       )))
+
+(defn get-valid-attacks
+  [state]
+  (let [player-id-in-turn (get state :player-id-in-turn)
+        player-change-fn {"p1" "p2"
+                          "p2" "p1"}
+        opponent-id (player-change-fn player-id-in-turn)
+        minions (get-minions state opponent-id)
+        hero-id (get-in state [:players opponent-id :hero :id])]
+    (reduce (fn [state minion]
+              (update-minion state (:id minion) :valid-attack-ids (conj (map :id (filter (fn [minion-en] (not (:stealth minion-en))) minions)) hero-id)))
+            state
+            (get-minions state player-id-in-turn))))

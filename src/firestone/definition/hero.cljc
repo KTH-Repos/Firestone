@@ -7,9 +7,7 @@
                                          update-minion]]))
 
 (def hero-definitions
-  {
-
-   "Jaina Proudmoore"
+  {"Jaina Proudmoore"
    {:name       "Jaina Proudmoore"
     :health     30
     :class      :mage
@@ -21,14 +19,11 @@
     :health     30
     :class      :warlock
     :type       :hero
-    :hero-power "Life Tap"}
+    :hero-power "Life Tap"}})
 
-   })
 
 (def hero-power-definitions
-  {
-
-   "Life Tap"
+  {"Life Tap"
    {:name        "Life Tap"
     :mana-cost   2
     :class       :warlock
@@ -37,7 +32,7 @@
     :power       (fn [state player-id]
                    (-> state
                        (draw-card player-id)
-                       (update-hero player-id :health #(max 0 (- % 2)))))}}
+                       (update-hero player-id :health #(max 0 (- % 2)))))}
 
    "Fireblast"
    {:name        "Fireblast"
@@ -62,8 +57,7 @@
                            state))
                        (do
                          (println "Target not found for Fireblast.")
-                         state))))}
-   )
+                         state))))}})
 
 (add-definitions! hero-definitions)
 (add-definitions! hero-power-definitions)

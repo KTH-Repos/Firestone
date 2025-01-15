@@ -384,32 +384,6 @@
                                       acc-state))
                                   state
                                   (map-indexed vector board))))}
-
-   (defn frothing-berserker
-     "Defines the Frothing Berserker minion with its ability."
-     []
-     {:name        "Frothing Berserker"
-      :mana-cost   3
-      :health      4
-      :attack      2
-      :type        :minion
-      :class       :warrior
-      :set         :classic
-      :rarity      :rare
-      :description "Whenever a minion takes damage, gain +1 Attack."
-      :on-minion-damaged (fn [state _damaged-minion]
-                           ;; Iterate over both players to find all Frothing Berserkers
-                           (let [players ["p1" "p2"]]
-                             (reduce (fn [s player-id]
-                                       (update-in s [:players player-id :board]
-                                                  (fn [board]
-                                                    (mapv (fn [m]
-                                                            (if (= (:name m) "Frothing Berserker")
-                                                              (update m :attack inc)
-                                                              m))
-                                                          board))))
-                                     state
-                                     players)))})
    })
 
 (add-definitions! card-definitions)
