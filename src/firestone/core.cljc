@@ -24,7 +24,8 @@
                                          deduct-player-mana
                                          remove-card-from-hand
                                          put-card-on-board
-                                         update-minion]]))
+                                         update-minion
+                                         get-player-id-in-turn]]))
 
 
 (defn get-character
@@ -267,41 +268,75 @@
 
 
 (defn play-card
-  "Handles playing a card by its type (minion or spell). Incorporates logic to check if the card is playable and deduct mana."
+  "Handles playing a card by its type (minion or spell). Ensures that it is the player's turn,
+   that the card is in hand, deducts mana, and handles end-turn related updates (e.g., removing sleepy)."
   [state player-id card-id position]
-  ;; Retrieve the card directly within the function
-  (let [card (-> (filter (fn [x] (= (:id x) card-id))
-                         (into []
-                               (concat (get-in state [:players "p1" :hand])
-                                       (get-in state [:players "p2" :hand]))))
-                 (first))]
-    ;; Handle minion cards
-    (cond
-      (= (:type card) :minion)
-      (if (can-play-minion? state player-id card)
-        (-> (deduct-player-mana state player-id (-> (get-definition (:name card))
-                                                    (:mana-cost)))
-            (remove-card-from-hand player-id card)
-            (put-card-on-board player-id card position)))
-      ;handle battlecry
-      ;handle combo, update playable cards, update combo cards and the cards-played-this-turn key
+  ;; 1) Verify it is the player's turn.
+  (if (not= (get-player-id-in-turn state) player-id)
+    (error "It's not the player's turn.")
+    (let [hand (get-in state [:players player-id :hand])
+          card (first (filter #(= (:id %) card-id) hand))]
+      (if (nil? card)
+        (error "The player does not have the specified card in their hand.")
 
-      (= (:type card) :spell)
-      (-> state
-          (remove-card-from-hand player-id card)
-          (play-spell player-id card)
-          (draw-card player-id))
-      )))
+        (cond
+          ;; 2) If this is a MINION card:
+          (= (:type card) :minion)
+          (if (can-play-minion? state player-id card)
+            (let [mana-cost (-> (get-definition (:name card))
+                                :mana-cost)
+                  state-after-play (-> state
+                                       ;; Deduct the mana
+                                       (deduct-player-mana player-id mana-cost)
+                                       ;; Remove the card from hand
+                                       (remove-card-from-hand player-id card)
+                                       ;; Put the card on board, which creates a minion with :sleepy true
+                                       (put-card-on-board player-id card position))
+                  ;; Assume the newly played minion is the last one in the player's minions list.
+                  new-minions (get-minions state-after-play player-id)
+                  new-minion-id (if (seq new-minions)
+                                  (:id (last new-minions))
+                                  (error "No minion found on board after playing card"))]
+              (-> state-after-play
+                  ;; Mark that this minion was summoned THIS turn using the actual minion ID.
+                  (update :minion-ids-summoned-this-turn conj new-minion-id)))
+            (error "Cannot play the minion card (e.g., insufficient mana or full board)."))
+
+          ;; 3) If this is a SPELL card:
+          (= (:type card) :spell)
+          (-> state
+              (deduct-player-mana player-id (-> (get-definition (:name card))
+                                                :mana-cost))
+              (remove-card-from-hand player-id card)
+              (play-spell player-id card)
+              ;; Possibly draw a card or do other effects here
+              (draw-card player-id))
+
+          ;; 4) Otherwise: unrecognized card type
+          :else
+          (error "Unknown card type."))))))
+
+
+
 
 (defn get-valid-attacks
+  "Updates valid attack targets for each minion of the player in turn.
+   Logs the computed valid targets."
   [state]
   (let [player-id-in-turn (get state :player-id-in-turn)
         player-change-fn {"p1" "p2"
                           "p2" "p1"}
         opponent-id (player-change-fn player-id-in-turn)
-        minions (get-minions state opponent-id)
+        opponent-minions (get-minions state opponent-id)
+        opponent-minion-ids (map :id (filter (fn [m] (not (:stealth m))) opponent-minions))
         hero-id (get-in state [:players opponent-id :hero :id])]
-    (reduce (fn [state minion]
-              (update-minion state (:id minion) :valid-attack-ids (conj (map :id (filter (fn [minion-en] (not (:stealth minion-en))) minions)) hero-id)))
-            state
-            (get-minions state player-id-in-turn))))
+    (println "Entering get-valid-attacks for player in turn:" player-id-in-turn)
+    (println "Opponent id:" opponent-id ", opponent minion ids:" opponent-minion-ids ", hero id:" hero-id)
+    (reduce
+      (fn [new-state minion]
+        (let [minion-id (:id minion)
+              valid-ids (conj opponent-minion-ids hero-id)]
+          (println "Setting valid-attack-ids for minion" minion-id "to:" valid-ids)
+          (update-minion new-state minion-id :valid-attack-ids valid-ids)))
+      state
+      (get-minions state player-id-in-turn))))

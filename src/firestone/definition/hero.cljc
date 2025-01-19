@@ -4,7 +4,8 @@
             [firestone.construct :refer [get-minion
                                          get-hero
                                          update-hero
-                                         update-minion]]))
+                                         update-minion
+                                         ]]))
 
 (def hero-definitions
   {"Jaina Proudmoore"
