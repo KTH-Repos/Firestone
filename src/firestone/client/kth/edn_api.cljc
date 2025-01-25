@@ -67,12 +67,12 @@
       (error "No game found for game-id" game-id))))
 
 ;; Modified play-minion-card function: uses the keyed state.
-(defn play-minion-card!
-  [player-id card-id position]
+(defn play-card!
+  [player-id card-id position target-id]
   (let [game-id "the-game-id"          ; Replace with dynamic game-id if needed
         current-game-state (get-game-state game-id)]
     (if current-game-state
-      (let [updated-game-state (play-card current-game-state player-id card-id position)]
+      (let [updated-game-state (play-card current-game-state player-id card-id position target-id)]
         (update-game-state game-id updated-game-state)
         [(mapper/game->client-game updated-game-state)])
       (error "No game found for game-id" game-id))))

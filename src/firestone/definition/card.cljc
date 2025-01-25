@@ -74,6 +74,14 @@
     :set         :basic
     :type        :spell}
 
+   "Kill Command"
+   {:name        "Kill Command"
+    :mana-cost   3
+    :class       :hunter
+    :set         :basic
+    :type        :spell
+    :description "Deal 3 damage. If you control a Beast deal 5 damage instead."}
+
    "Silver Hand Knight"
    {:name        "Silver Hand Knight"
     :attack      4
@@ -104,14 +112,9 @@
                      ;; No target chosen => do nothing
                      state
                      ;; Otherwise, buff the targeted minion
-                     (let [m-id target-id]
+                     (let [minion (get-minion state target-id)]
                        (-> state
-                           ;; 1) Increase the minion's attack by 2
-                           (update-minion m-id :attack #(+ % 2))))))}
-
-
-
-
+                           (update-minion (:id minion) :attack #(+ % 2))))))}
 
 "Stampeding Kodo"
    {:name        "Stampeding Kodo"

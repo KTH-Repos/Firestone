@@ -12,12 +12,9 @@
                                          get-minions
                                          get-deck
                                          get-hand
-                                         add-card-to-hand
-                                         remove-card-from-deck
-                                         handle-fatigue
+                                         remove-minion
                                          set-mana
                                          get-max-mana
-                                         trigger-spell
                                          handle-minion-attack-on-minion
                                          handle-minion-attack-on-hero
                                          can-play-minion?
@@ -26,7 +23,8 @@
                                          put-card-on-board
                                          update-minion
                                          get-player-id-in-turn
-                                         trigger-battlecry]]))
+                                         trigger-battlecry
+                                         update-hero]]))
 
 
 (defn get-character
@@ -231,8 +229,9 @@
 
 (defn play-spell
   "Applies the effects of playing a given spell card."
-  [state player-id card]
+  [state player-id card target-id]
   (let [enemy-id (if (= player-id "p1") "p2" "p1")]
+
     (cond
       ;; Consecration: Deal 2 damage to all enemies (opponent's hero and all their minions).
       (= (:name card) "Consecration")
@@ -240,38 +239,50 @@
           ;; Damage enemy hero by 2
           (update-in [:players enemy-id :hero :damage-taken] (fnil + 0) 2)
           ;; Damage each enemy minion by 2
-          (update-in [:players enemy-id :board]
-                     (fn [board]
-                       (mapv #(update % :damage-taken (fnil + 0) 2) board))))
+          (update-in [:players enemy-id :minions]
+                     (fn [minions]
+                       (mapv #(update % :damage-taken (fnil + 0) 2) minions))))
 
       ;; Equality: Change the Health of ALL minions to 1.
       (= (:name card) "Equality")
-      (letfn [(set-minion-health-to-one [board]
+      (letfn [(set-minion-health-to-one [minions]
                 (mapv (fn [m]
                         (let [max-health (-> (get-definition (:name m)) :health)]
                           ;; Adjust damage-taken so current health = 1
                           (assoc m :damage-taken (max 0 (dec max-health)))))
-                      board))]
+                      minions))]
         (-> state
-            (update-in [:players "p1" :board] set-minion-health-to-one)
-            (update-in [:players "p2" :board] set-minion-health-to-one)))
+            (update-in [:players "p1" :minions] set-minion-health-to-one)
+            (update-in [:players "p2" :minions] set-minion-health-to-one)))
 
       ;; Feign Death: Trigger all Deathrattles on your minions.
       (= (:name card) "Feign Death")
-      (let [player-minions (get-in state [:players player-id :board])
+      (let [player-minions (get-minions state player-id)
             with-deathrattles (filter :deathrattle player-minions)]
         (reduce (fn [acc-state minion]
                   ((:deathrattle minion) acc-state minion))
                 state
                 with-deathrattles))
+      (= (:name card) "Kill Command")
+      (let [has-beast (some #(= (:race %) :beast) (get-minions state player-id))
+            damage (if has-beast 5 3)]
+        (if target-id
+          (let [char (get-character state target-id)]
+            (if (= (:entity-type char) :minion)
+              ;; Deal damage to the target minion
+              (update-minion state (:id char) :damage-taken #(+ % damage))
+              ;; Deal damage to the enemy hero
+              (update-hero state (:id char) :damage-taken #(+ % damage))))
+          state))
 
+      ;; Default case: No spell effect
       :else state)))
-
 
 (defn play-card
   "Handles playing a card by its type (minion or spell). Ensures that it is the player's turn,
-   that the card is in hand, deducts mana, and handles end-turn related updates (e.g., removing sleepy)."
-  [state player-id card-id position]
+   that the card is in hand, deducts mana, and handles end-turn related updates (e.g., removing sleepy).
+   Additionally, after playing a spell, it checks for and removes any minions with 0 or less health."
+  [state player-id card-id position target-id]
   ;; 1) Verify it is the player's turn.
   (if (not= (get-player-id-in-turn state) player-id)
     (error "It's not the player's turn.")
@@ -279,26 +290,25 @@
           card (first (filter #(= (:id %) card-id) hand))]
       (if (nil? card)
         (error "The player does not have the specified card in their hand.")
-
         (cond
           ;; 2) If this is a MINION card:
           (= (:type card) :minion)
           (if (can-play-minion? state player-id card)
-            (let [mana-cost         (-> (get-definition (:name card)) :mana-cost)
-                  state-after-play  (-> state
-                                        ;; Deduct the mana
-                                        (deduct-player-mana player-id mana-cost)
-                                        ;; Remove the card from hand
-                                        (remove-card-from-hand player-id card)
-                                        ;; Put the card on board (creates a minion with :sleepy true)
-                                        (put-card-on-board player-id card position))
+            (let [mana-cost        (-> (get-definition (:name card)) :mana-cost)
+                  state-after-play (-> state
+                                       ;; Deduct the mana
+                                       (deduct-player-mana player-id mana-cost)
+                                       ;; Remove the card from hand
+                                       (remove-card-from-hand player-id card)
+                                       ;; Put the card on board (creates a minion with :sleepy true)
+                                       (put-card-on-board player-id card position))
                   ;; Grab the newly placed minion from the board
-                  new-minions      (get-minions state-after-play player-id)
-                  new-minion       (if (seq new-minions)
-                                     (last new-minions)
-                                     (error "No minion found on board after playing card"))
+                  new-minions       (get-minions state-after-play player-id)
+                  new-minion        (if (seq new-minions)
+                                      (last new-minions)
+                                      (error "No minion found on board after playing card"))
                   ;; Trigger battlecry if present
-                  state-after-bc   (trigger-battlecry state-after-play new-minion)]
+                  state-after-bc    (trigger-battlecry state-after-play new-minion target-id)]
               ;; Mark that this minion was summoned THIS turn
               (-> state-after-bc
                   (update :minion-ids-summoned-this-turn conj (:id new-minion))))
@@ -306,18 +316,29 @@
 
           ;; 3) If this is a SPELL card:
           (= (:type card) :spell)
-          (-> state
-              (deduct-player-mana player-id (-> (get-definition (:name card))
-                                                :mana-cost))
-              (remove-card-from-hand player-id card)
-              (play-spell player-id card)
-              (draw-card player-id))
+          (let [state-after-spell (-> state
+                                      ;; Deduct the mana
+                                      (deduct-player-mana player-id (-> (get-definition (:name card))
+                                                                        :mana-cost))
+                                      ;; Remove the card from hand
+                                      (remove-card-from-hand player-id card)
+                                      ;; Play the spell effect
+                                      (play-spell player-id card target-id)
+                                      ;; Draw a card
+                                      (draw-card player-id))
+                ;; Retrieve all minions from both players
+                all-minions        (get-minions state-after-spell)
+                ;; Identify dead minions (health <= 0)
+                dead-minions       (filter #(<= (- (:health %) (:damage-taken %)) 0) all-minions)]
+            ;; Remove each dead minion sequentially
+            (reduce (fn [current-state minion]
+                      (remove-minion current-state (:id minion)))
+                    state-after-spell
+                    dead-minions))
 
           ;; 4) Otherwise: unrecognized card type
           :else
           (error "Unknown card type."))))))
-
-
 
 
 

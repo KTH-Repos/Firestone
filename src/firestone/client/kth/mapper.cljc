@@ -69,7 +69,7 @@
    :states                      (remove nil? (:states minion))
    :can-attack                  (or (:can-attack minion) false)
    :health                      (- (:health minion) (:damage-taken minion))
-   :attack                      (construct/get-attack game (:id minion))
+   :attack                      (:attack minion)
    :valid-attack-ids            (construct/get-attackable-ids game (:owner-id minion))
    :max-health                  (:original-health minion)
    :race                        (:race minion)

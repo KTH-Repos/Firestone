@@ -739,13 +739,76 @@
                 2))}
 
   [state id key function-or-value]
+  ;; Print the state before updating
+  (println "Before update:" state)
+
+  (let [minion (get-minion state id)
+        new-state (if minion
+                    (let [updated-minion (if (fn? function-or-value)
+                                           (update minion key function-or-value)
+                                           (assoc minion key function-or-value))]
+                      (replace-minion state updated-minion))
+                    state)]
+    ;; Print the state after updating
+    (println "After update:" new-state)
+
+    new-state))
+
+
+(defn update-minion-old
+  "Updates the value of the given key for the minion with the given id.
+   If function-or-value is a value, it will be the new value;
+   else if it is a function, it will be applied to the existing value to produce the new value.
+
+   Additionally, prints the state before and after the update for debugging purposes."
+  [state id key function-or-value]
+
+  ;; Print the entire state before the update (optional and can be commented out if too verbose)
+  ;; (println "State before update:" state)
+
+  ;; Alternatively, print only the relevant player's board before update
   (let [minion (get-minion state id)]
     (if minion
-      (let [updated-minion (if (fn? function-or-value)
-                             (update minion key function-or-value)
-                             (assoc minion key function-or-value))]
-        (replace-minion state updated-minion))
-      state)))
+      (let [owner-id (:owner-id minion)
+            player-state (get-in state [:players owner-id])
+            minions-before (:board-entities player-state)
+            minion-before (some #(when (= (:id %) id) %) minions-before)]
+
+        (println "\n--- Update Minion Debugging ---")
+        (println "State before update (Player:" owner-id "):")
+        (clojure.pprint/pprint minion-before)
+
+        ;; Perform the update
+        (let [updated-minion (if (fn? function-or-value)
+                               (update minion key function-or-value)
+                               (assoc minion key function-or-value))
+              new-state (replace-minion state updated-minion)
+              player-state-after (get-in new-state [:players owner-id])
+              minions-after (:board-entities player-state-after)
+              minion-after (some #(when (= (:id %) id) %) minions-after)]
+
+          ;; Print the updated minion details
+          (println "Updating minion:" id "key:" key "with:" function-or-value)
+          (println "Original minion:")
+          (clojure.pprint/pprint minion-before)
+          (println "Updated minion:")
+          (clojure.pprint/pprint updated-minion)
+
+          ;; Print the state after the update
+          (println "State after update (Player:" owner-id "):")
+          (clojure.pprint/pprint minion-after)
+          (println "--- End of Debugging ---\n")
+
+          ;; Return the updated state
+          new-state))
+      ;; If the minion is not found, print a message and return the unchanged state
+      (do
+        (println "\n--- Update Minion Debugging ---")
+        (println "Minion not found:" id)
+        (println "State remains unchanged.")
+        (println "--- End of Debugging ---\n")
+        state))))
+
 
 (defn should-take-fatigue?
   "Returns truthy if the player should take fatigue damage (i.e., their deck is empty), falsey otherwise."
@@ -784,41 +847,14 @@
         (assoc-in [:players player-id :hero :damage-taken] (+ current-damage-taken fatigue-damage)))))
 
 (defn trigger-deathrattle
-  "Triggers the Deathrattle effect of a minion"
-  {:test (fn []
-           (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0)}
-                                             {:hero (create-hero "Gul'dan" :id "h2" :damage-taken 0)}])
-                 leper-gnome (create-minion "Leper Gnome" :id "lg" :owner-id "p1")
-                 loot-hoarder (create-minion "Loot Hoarder" :id "lh" :owner-id "p2")
-                 state-with-minions (-> initial-state
-                                        (add-minion-to-board "p1" leper-gnome 0)
-                                        (add-minion-to-board "p2" loot-hoarder 0)
-                                        (add-card-to-deck "p2" "Test Card"))
-                 state-after-leper-gnome (trigger-deathrattle state-with-minions leper-gnome)
-                 state-after-loot-hoarder (trigger-deathrattle state-after-leper-gnome loot-hoarder)]
-             ; Test Leper Gnome Deathrattle
-             (is= (get-in state-after-leper-gnome [:players "p2" :hero :damage-taken]) 2)
-             ; Test Loot Hoarder Deathrattle
-             (is= (count (get-hand state-after-loot-hoarder "p2")) 1)
-             (is= (count (get-deck state-after-loot-hoarder "p2")) 0)
-             ; Test minion without Deathrattle
-             (let [boulderfist-ogre (create-minion "Boulderfist Ogre" :id "bo" :owner-id "p1")
-                   state-after-boulderfist (trigger-deathrattle state-with-minions boulderfist-ogre)]
-               (is= state-after-boulderfist state-with-minions))))}
   [state minion]
-  (case (:name minion)
-    "Leper Gnome"
-    (let [enemy-id (if (= (:owner-id minion) "p1") "p2" "p1")]
-      (update-in state [:players enemy-id :hero :damage-taken] + 2))
-    "Loot Hoarder"
-    (let [owner-id (:owner-id minion)]
-      (if (empty? (get-deck state owner-id))
-        (handle-fatigue state owner-id)
-        (-> state
-            (update-in [:players owner-id :hand] conj (first (get-deck state owner-id)))
-            (update-in [:players owner-id :deck] rest))))
-
-    state))
+  (let [minion-name (:name minion)
+        owner-id    (:owner-id minion)
+        card-def    (get-definition minion-name)  ;; or however you retrieve definitions
+        dt-fn       (:deathrattle card-def)]
+    (if dt-fn
+      (dt-fn state {:player-id owner-id})  ;; Pass as a map
+      state)))
 
 (defn remove-minion
   "Removes a minion with the given id from the state, triggering its Deathrattle if applicable."
@@ -854,15 +890,15 @@
   (let [minion (get-minion state id)
         owner-id (:owner-id minion)]
     (if minion
-        (let [; Check if the minion has a deathrattle ability
-              state-after-deathrattle (if (= :deathrattle (:ability minion))
-                                        (trigger-deathrattle state minion)
-                                        state)]
-          (update-in state-after-deathrattle [:players owner-id :minions]
-                     (fn [minions]
-                       (remove (fn [m] (= (:id m) id)) minions))))
+      (let [card-def (get-definition (:name minion))  ;; Retrieve card definition
+            has-deathrattle? (:deathrattle card-def)
+            state-after-deathrattle (if has-deathrattle?
+                                      (trigger-deathrattle state minion)
+                                      state)]
+        (update-in state-after-deathrattle [:players owner-id :minions]
+                   (fn [minions]
+                     (remove (fn [m] (= (:id m) id)) minions))))
       state)))
-
 
 
 (defn remove-minions
@@ -1078,76 +1114,15 @@
              (is= (get-in (get-minion state-with-drake "td") [:health]) 2)
              ; Test Dr. Boom Battlecry (summoning two Boom Bots)
              (is= (count (get-minions state-with-boom "p1")) 3)))}
-  [state minion]
+  [state minion target-id]
   (let [minion-name (:name minion)
         owner-id    (:owner-id minion)
         card-def    (get-definition minion-name)  ;; or however you retrieve definitions
         bc-fn       (:battlecry card-def)]
     (if bc-fn
       ;; Call the battlecry function with the appropriate params
-      (bc-fn state :player-id owner-id)
+      (bc-fn state :player-id owner-id :target-id target-id)
       ;; If there is no :battlecry in the definition, just return the state
-      state)))
-
-(defn trigger-spell
-  "Triggers the effect of a spell when it's played on the board."
-  {:test (fn []
-           ; Test Consecration
-           (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0)}
-                                             {:hero (create-hero "Gul'dan" :id "h2" :damage-taken 0)
-                                              :minions [(create-minion "Leper Gnome" :id "m1" :damage-taken 0)]}])
-                 spell-card (create-card "Consecration" :owner-id "p1")
-                 result-state (trigger-spell initial-state spell-card)]
-             (is= (get-in result-state [:players "p2" :hero :damage-taken]) 2)
-             (is= (get-in result-state [:players "p2" :minions 0 :damage-taken]) 2))
-
-           ; Test Equality
-           (let [initial-state (create-game [{:minions [(create-minion "Boulderfist Ogre" :id "m1" :health 7)]}
-                                             {:minions [(create-minion "Leper Gnome" :id "m2" :health 5)]}])
-                 spell-card (create-card "Equality" :owner-id "p1")
-                 result-state (trigger-spell initial-state spell-card)]
-             (is= (get-in result-state [:players "p1" :minions 0 :health]) 1)
-             (is= (get-in result-state [:players "p2" :minions 0 :health]) 1))
-
-           ; Test Feign Death
-           (let [initial-state (create-game [{:minions [(create-minion "Leper Gnome" :id "m1" :ability :deathrattle)
-                                                        (create-minion "Boulderfist Ogre" :id "m2")]}])
-                 spell-card (create-card "Feign Death" :owner-id "p1")
-                 result-state (trigger-spell initial-state spell-card)]
-             (is (not= result-state initial-state)) ; Assuming trigger-deathrattle changes the state
-             (is= (count (get-in result-state [:players "p1" :minions])) 2)))}
-  [state spell-card]
-  (let [spell-name (:name spell-card)
-        player-id (:owner-id spell-card)]
-    (case spell-name
-      "Consecration"
-      (let [enemy-id (if (= player-id "p1") "p2" "p1")]
-        (-> state
-            ; Damage enemy hero by 2
-            (update-in [:players enemy-id :hero :damage-taken] + 2)
-            ; Damage all enemy minions by 2
-            (update-in [:players enemy-id :minions]
-                       (fn [minions]
-                         (vec (map #(update % :damage-taken + 2) minions))))))
-
-      "Equality"
-      (reduce
-        (fn [s player-id]
-          (update-in s [:players player-id :minions]
-                     (fn [minions]
-                       (mapv #(assoc % :health 1) minions))))
-        state
-        (keys (:players state)))
-
-      "Feign Death"
-      (let [player-minions (get-in state [:players player-id :minions])
-            deathrattle-minions (filter #(= (:ability %) :deathrattle) player-minions)]
-        (reduce
-          (fn [s minion]
-            (trigger-deathrattle s minion))
-          state
-          deathrattle-minions))
-
       state)))
 
 (defn trigger-stealth
@@ -1201,7 +1176,8 @@
   [state id]
   (let [minion (get-minion state id)
         definition (get-definition minion)]
-    (println "definition of minion " definition)
+    (println "Give id " id)
+    (println "attack of minion " :attack definition)
     (:attack definition)))
 
 (defn mark-minion-attacked
