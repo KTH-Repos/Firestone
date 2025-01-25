@@ -576,7 +576,7 @@
                                          hand      :hand
                                          secrets   :secrets}]
                                (-> state
-                                   (add-minions-to-board player-id (or minions board))
+                                   (add-minions-to-board player-id minions)
                                    (add-cards-to-deck player-id deck)
                                    (add-cards-to-hand player-id hand)
                                    (add-cards-to-secrets player-id secrets)))
@@ -1301,7 +1301,6 @@
           state))))
 
 ;TODO: Handle stealth
-;TODO: Handle stealth
 (defn handle-minion-attack-on-minion
   "Handles the attack logic when a minion attacks another minion, including event dispatching."
   [state attacker-id target-id]
@@ -1392,8 +1391,6 @@
             ;; Mark hero power as used
             updated-state (assoc-in state-after-use [:players player-id :hero :hero-power-used] true)]
         updated-state))))
-
-
 
 
 (defn clear-sleepy-status-from-minions
