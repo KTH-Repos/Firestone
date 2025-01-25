@@ -1054,7 +1054,7 @@
             (add-minion-to-board player-id minion position)))
       state)))
 
-(defn battlecry
+(defn trigger-battlecry
   "Triggers the Battlecry effect of a minion"
   {:test (fn []
            (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0)}
@@ -1079,47 +1079,15 @@
              ; Test Dr. Boom Battlecry (summoning two Boom Bots)
              (is= (count (get-minions state-with-boom "p1")) 3)))}
   [state minion]
-  (case (:name minion)
-    "Silver Hand Knight"
-    (let [owner-id (:owner-id minion)]
-      (add-minion-to-board state owner-id (create-minion "Squire") (inc (:position minion))))
-    "Mad Bomber"
-    (let [owner-id (:owner-id minion)
-          enemy-id (if (= owner-id "p1") "p2" "p1")
-          all-targets (concat (get-minions state "p1") (get-minions state "p2") [{:owner-id "p1" :entity-type :hero} {:owner-id "p2" :entity-type :hero}])
-          damage-distribution (take 3 (repeatedly #(rand-nth all-targets)))]
-      (reduce (fn [acc-state target]
-                (if (= (:entity-type target) :hero)
-                  (update-in acc-state [:players (:owner-id target) :hero :damage-taken] + 1)
-                  (update-in acc-state [:players (:owner-id target) :minions]
-                             (fn [minions]
-                               (mapv (fn [m] (if (= (:id m) (:id target)) (update m :damage-taken + 1) m)) minions)))))
-              state
-              damage-distribution))
-    "Stampeding Kodo"
-    (let [enemy-id (if (= (:owner-id minion) "p1") "p2" "p1")
-          enemy-minions (get-minions state enemy-id)
-          target (some #(when (<= (:attack %) 2) %) enemy-minions)]
-      (if target
-        (remove-minion state (:id target))
-        state))
-    "Twilight Drake"
-    (let [owner-id (:owner-id minion)
-          health-bonus (count (get-hand state owner-id))]
-      (update-in state [:players owner-id :minions] #(mapv (fn [m] (if (= (:id m) (:id minion)) (update m :health + health-bonus) m)) %)))
-    "Dr. Boom"
-    (let [owner-id (:owner-id minion)
-          current-minion-count (count (get-minions state owner-id))
-          ; Ensure we don't exceed the max minion count (usually 7)
-          max-minions 7
-          space-left (- max-minions current-minion-count)]
-      (if (>= space-left 2)
-        (-> state
-            (add-minion-to-board owner-id (create-minion "Boom Bot") (inc (:position minion)))
-            (add-minion-to-board owner-id (create-minion "Boom Bot") (+ 2 (:position minion))))
-        state))
-    state))
-
+  (let [minion-name (:name minion)
+        owner-id    (:owner-id minion)
+        card-def    (get-definition minion-name)  ;; or however you retrieve definitions
+        bc-fn       (:battlecry card-def)]
+    (if bc-fn
+      ;; Call the battlecry function with the appropriate params
+      (bc-fn state :player-id owner-id)
+      ;; If there is no :battlecry in the definition, just return the state
+      state)))
 
 (defn trigger-spell
   "Triggers the effect of a spell when it's played on the board."

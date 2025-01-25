@@ -25,7 +25,8 @@
                                          remove-card-from-hand
                                          put-card-on-board
                                          update-minion
-                                         get-player-id-in-turn]]))
+                                         get-player-id-in-turn
+                                         trigger-battlecry]]))
 
 
 (defn get-character
@@ -283,23 +284,24 @@
           ;; 2) If this is a MINION card:
           (= (:type card) :minion)
           (if (can-play-minion? state player-id card)
-            (let [mana-cost (-> (get-definition (:name card))
-                                :mana-cost)
-                  state-after-play (-> state
-                                       ;; Deduct the mana
-                                       (deduct-player-mana player-id mana-cost)
-                                       ;; Remove the card from hand
-                                       (remove-card-from-hand player-id card)
-                                       ;; Put the card on board, which creates a minion with :sleepy true
-                                       (put-card-on-board player-id card position))
-                  ;; Assume the newly played minion is the last one in the player's minions list.
-                  new-minions (get-minions state-after-play player-id)
-                  new-minion-id (if (seq new-minions)
-                                  (:id (last new-minions))
-                                  (error "No minion found on board after playing card"))]
-              (-> state-after-play
-                  ;; Mark that this minion was summoned THIS turn using the actual minion ID.
-                  (update :minion-ids-summoned-this-turn conj new-minion-id)))
+            (let [mana-cost         (-> (get-definition (:name card)) :mana-cost)
+                  state-after-play  (-> state
+                                        ;; Deduct the mana
+                                        (deduct-player-mana player-id mana-cost)
+                                        ;; Remove the card from hand
+                                        (remove-card-from-hand player-id card)
+                                        ;; Put the card on board (creates a minion with :sleepy true)
+                                        (put-card-on-board player-id card position))
+                  ;; Grab the newly placed minion from the board
+                  new-minions      (get-minions state-after-play player-id)
+                  new-minion       (if (seq new-minions)
+                                     (last new-minions)
+                                     (error "No minion found on board after playing card"))
+                  ;; Trigger battlecry if present
+                  state-after-bc   (trigger-battlecry state-after-play new-minion)]
+              ;; Mark that this minion was summoned THIS turn
+              (-> state-after-bc
+                  (update :minion-ids-summoned-this-turn conj (:id new-minion))))
             (error "Cannot play the minion card (e.g., insufficient mana or full board)."))
 
           ;; 3) If this is a SPELL card:
@@ -309,12 +311,12 @@
                                                 :mana-cost))
               (remove-card-from-hand player-id card)
               (play-spell player-id card)
-              ;; Possibly draw a card or do other effects here
               (draw-card player-id))
 
           ;; 4) Otherwise: unrecognized card type
           :else
           (error "Unknown card type."))))))
+
 
 
 

@@ -7,6 +7,7 @@
                                          remove-minion
                                          get-hand
                                          get-hero
+                                         get-minion
                                          update-minion]]))
 
 (def card-definitions
@@ -87,7 +88,32 @@
                    (let [squire (create-minion "Squire")]
                      (add-minion-to-board state player-id squire (count (get-minions state player-id)))))}
 
-   "Stampeding Kodo"
+   "Abusive Sergeant"
+   {:name        "Abusive Sergeant"
+    :attack      1
+    :health      1
+    :mana-cost   1
+    :rarity      :common
+    :set         :classic
+    :type        :minion
+    :description "Battlecry: Give a minion +2 Attack this turn."
+
+    :battlecry   (fn [state & {:keys [target-id]}]
+                   (print "target-id is following: " target-id)
+                   (if (nil? target-id)
+                     ;; No target chosen => do nothing
+                     state
+                     ;; Otherwise, buff the targeted minion
+                     (let [m-id target-id]
+                       (-> state
+                           ;; 1) Increase the minion's attack by 2
+                           (update-minion m-id :attack #(+ % 2))))))}
+
+
+
+
+
+"Stampeding Kodo"
    {:name        "Stampeding Kodo"
     :attack      3
     :mana-cost   5
