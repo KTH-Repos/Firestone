@@ -12,20 +12,38 @@
                 {:name             "Jaina Proudmoore"
                  :entity-type      :hero
                  :health           30
-                 :hero-power       "Fireblast"
-                 :hero-power-used  false
-                 :power            (:power (get-definition "Fireblast"))
+                 :class            :mage
+                 :type             :hero
+                 :stealth          nil
+                 :effects          []
+                 :has-used-your-turn false
+                 :fatigue-counter  0
+                 :mana             10
+                 :max-mana         10
                  :damage-taken     0
-                 :fatigue          0})
+                 :hero-power       {:name        "Fireblast"
+                                    :description "Deal 1 damage."
+                                    :mana-cost   2
+                                    :class       :mage
+                                    :type        :hero-power}})
            (is= (create-hero "Gul'dan" :damage-taken 10)
                 {:name             "Gul'dan"
                  :entity-type      :hero
                  :health           30
-                 :hero-power       "Life Tap"
-                 :hero-power-used  false
-                 :power            (:power (get-definition "Life Tap"))
+                 :class            :warlock
+                 :type             :hero
+                 :stealth          nil
+                 :effects          []
+                 :has-used-your-turn false
+                 :fatigue-counter  0
+                 :mana             10
+                 :max-mana         10
                  :damage-taken     10
-                 :fatigue          0}))}
+                 :hero-power       {:name        "Life Tap"
+                                    :description "Draw a card and take 2 damage."
+                                    :mana-cost   2
+                                    :class       :warlock
+                                    :type        :hero-power}}))}
   [name & kvs]
   (let [definition (get-definition name)
         hero {:name               name
@@ -80,11 +98,15 @@
 (defn get-other-player-id
   "Returns the player ID of the player that is not associated with the given player-id.
   If player-id is 'p1', it returns 'p2', and vice versa."
+  {:test (fn []
+           (is= (get-other-player-id "p1") "p2")
+           (is= (get-other-player-id "p2") "p1"))}
   [player-id]
   (if (= player-id "p1") "p2" "p1"))
 
 (defn effects-parser
   "The central function for processing all effects in the game."
+
   [state characters player-id event & [args]]
   (let [enemy-id (get-other-player-id player-id)
         args (or args {})
@@ -158,12 +180,20 @@
 
 (defn get-original-attack
   "Returns the attack of the minion with the given id."
+  {:test (fn []
+           (is= (get-original-attack "Boulderfist Ogre") 6)
+           (is= (get-original-attack "Sheep") 1)
+           (is= (get-original-attack "Leper Gnome") 1))}
   [name]
   (let [definition (get-definition name)]
     (:attack definition)))
 
 (defn get-original-health
   "Returns the attack of the minion with the given id."
+  {:test (fn []
+           (is= (get-original-health "Boulderfist Ogre") 7)
+           (is= (get-original-health "Sheep") 1)
+           (is= (get-original-health "Leper Gnome") 1))}
   [name]
   (let [definition (get-definition name)]
     (:health definition)))
@@ -174,14 +204,21 @@
            (is= (create-minion "Sheep"
                                :id "m"
                                :attacks-performed-this-turn 1)
-                {:attacks-performed-this-turn 1
+                {:attacks-performed-this-turn 1  ; This is overridden by the kvs parameter
+                 :can-attack                  nil
                  :damage-taken                0
+                 :description                 ""
                  :entity-type                 :minion
-                 :name                        "Sheep"
-                 :id                          "m"
-                 :attack                      1
                  :health                      1
-                 :mana-cost                   1}))}
+                 :id                          "m"
+                 :mana-cost                   1
+                 :max-health                  1
+                 :name                        "Sheep"
+                 :original-attack             1
+                 :original-health             1
+                 :attack                      1
+                 :race                        :beast
+                 :set                         :basic}))}
   [name & kvs]
   (let [definition (get-definition name)
         minion {:damage-taken                0
@@ -216,29 +253,51 @@
                                      (create-hero "Gul'dan")])
                 {:player-id-in-turn             "p1"
                  :players                       {"p1" {:id      "p1"
-                                                       :mana    10
-                                                       :max-mana 10
                                                        :deck    []
                                                        :hand    []
                                                        :minions []
                                                        :secrets []
-                                                       :hero    {:name         "Jaina Proudmoore"
-                                                                 :id           "r"
-                                                                 :damage-taken 0
-                                                                 :fatigue      0
-                                                                 :entity-type  :hero}}
+                                                       :hero    {:class              :mage
+                                                                 :damage-taken       0
+                                                                 :effects            []
+                                                                 :entity-type        :hero
+                                                                 :fatigue-counter    0
+                                                                 :has-used-your-turn false
+                                                                 :health             30
+                                                                 :hero-power         {:class       :mage
+                                                                                      :description "Deal 1 damage."
+                                                                                      :mana-cost   2
+                                                                                      :name        "Fireblast"
+                                                                                      :type        :hero-power}
+                                                                 :id                 "r"
+                                                                 :mana               10
+                                                                 :max-mana           10
+                                                                 :name               "Jaina Proudmoore"
+                                                                 :stealth            nil
+                                                                 :type               :hero}}
                                                  "p2" {:id      "p2"
-                                                       :mana    10
-                                                       :max-mana 10
                                                        :deck    []
                                                        :hand    []
                                                        :minions []
                                                        :secrets []
-                                                       :hero    {:name         "Gul'dan"
-                                                                 :id           "h2"
-                                                                 :damage-taken 0
-                                                                 :fatigue      0
-                                                                 :entity-type  :hero}}}
+                                                       :hero    {:class              :warlock
+                                                                 :damage-taken       0
+                                                                 :effects            []
+                                                                 :entity-type        :hero
+                                                                 :fatigue-counter    0
+                                                                 :has-used-your-turn false
+                                                                 :health             30
+                                                                 :hero-power         {:class       :warlock
+                                                                                      :description "Draw a card and take 2 damage."
+                                                                                      :mana-cost   2
+                                                                                      :name        "Life Tap"
+                                                                                      :type        :hero-power}
+                                                                 :id                 "h2"
+                                                                 :mana               10
+                                                                 :max-mana           10
+                                                                 :name               "Gul'dan"
+                                                                 :stealth            nil
+                                                                 :type               :hero}}}
                  :counter                       1
                  :minion-ids-summoned-this-turn []
                  :effects                       []}))}
@@ -581,45 +640,97 @@
                              :player-id-in-turn "p2")
                 {:player-id-in-turn             "p2"
                  :players                       {"p1" {:id      "p1"
-                                                       :mana 10
-                                                       :max-mana 10
-                                                       :deck    [{:entity-type :card
-                                                                  :id          "c3"
-                                                                  :name        "Loot Hoarder"
-                                                                  :owner-id    "p1"}]
-                                                       :hand    [{:entity-type :card
-                                                                  :id          "c4"
-                                                                  :name        "Sheep"
-                                                                  :owner-id    "p1"}]
-                                                       :minions [{:damage-taken                0
+                                                       :deck    [{:attack             2
+                                                                  :description        "Deathrattle: Draw a card."
+                                                                  :entity-type        :card
+                                                                  :health             1
+                                                                  :id                 "c3"
+                                                                  :mana-cost          2
+                                                                  :name               "Loot Hoarder"
+                                                                  :original-attack    2
+                                                                  :original-health    1
+                                                                  :original-mana-cost 2
+                                                                  :owner-id           "p1"
+                                                                  :playable           false
+                                                                  :type               :minion
+                                                                  :valid-target-ids   []}]
+                                                       :hand    [{:attack             1
+                                                                  :description        ""
+                                                                  :entity-type        :card
+                                                                  :health             1
+                                                                  :id                 "c4"
+                                                                  :mana-cost          1
+                                                                  :name               "Sheep"
+                                                                  :original-attack    1
+                                                                  :original-health    1
+                                                                  :original-mana-cost 1
+                                                                  :owner-id           "p1"
+                                                                  :playable           false
+                                                                  :type               :minion
+                                                                  :valid-target-ids   []}]
+                                                       :minions [{:attack                      1
                                                                   :attacks-performed-this-turn 0
                                                                   :added-to-board-time-id      2
+                                                                  :can-attack                  nil
+                                                                  :damage-taken                0
+                                                                  :description                 "Deathrattle: Deal 2 damage to the enemy hero."
+                                                                  :effects                     ["Leper Gnome effect"]
                                                                   :entity-type                 :minion
-                                                                  :name                        "Leper Gnome"
-                                                                  :id                          "m1"
-                                                                  :ability                     :deathrattle
-                                                                  :attack                      1
                                                                   :health                      1
+                                                                  :id                          "m1"
                                                                   :mana-cost                   1
+                                                                  :max-health                  1
+                                                                  :name                        "Leper Gnome"
+                                                                  :original-attack             1
+                                                                  :original-health             1
+                                                                  :owner-id                    "p1"
                                                                   :position                    0
-                                                                  :owner-id                    "p1"}]
-                                                       :hero    {:name         "Jaina Proudmoore"
-                                                                 :id           "h1"
-                                                                 :entity-type  :hero
-                                                                 :damage-taken 0
-                                                                 :fatigue      0}}
+                                                                  :race                        nil
+                                                                  :set                         :classic}]
+                                                       :secrets []
+                                                       :hero    {:class              :mage
+                                                                 :damage-taken       0
+                                                                 :effects            []
+                                                                 :entity-type        :hero
+                                                                 :fatigue-counter    0
+                                                                 :has-used-your-turn false
+                                                                 :health             30
+                                                                 :hero-power         {:class       :mage
+                                                                                      :description "Deal 1 damage."
+                                                                                      :mana-cost   2
+                                                                                      :name        "Fireblast"
+                                                                                      :type        :hero-power}
+                                                                 :id                 "h1"
+                                                                 :mana               10
+                                                                 :max-mana           10
+                                                                 :name               "Jaina Proudmoore"
+                                                                 :stealth            nil
+                                                                 :type               :hero}}
                                                  "p2" {:id      "p2"
-                                                       :mana 10
-                                                       :max-mana 10
                                                        :deck    []
                                                        :hand    []
                                                        :minions []
-                                                       :hero    {:name         "Gul'dan"
-                                                                 :id           "h2"
-                                                                 :entity-type  :hero
-                                                                 :damage-taken 0
-                                                                 :fatigue      0}}}
+                                                       :secrets []
+                                                       :hero    {:class              :warlock
+                                                                 :damage-taken       0
+                                                                 :effects            []
+                                                                 :entity-type        :hero
+                                                                 :fatigue-counter    0
+                                                                 :has-used-your-turn false
+                                                                 :health             30
+                                                                 :hero-power         {:class       :warlock
+                                                                                      :description "Draw a card and take 2 damage."
+                                                                                      :mana-cost   2
+                                                                                      :name        "Life Tap"
+                                                                                      :type        :hero-power}
+                                                                 :id                 "h2"
+                                                                 :mana               10
+                                                                 :max-mana           10
+                                                                 :name               "Gul'dan"
+                                                                 :stealth            nil
+                                                                 :type               :hero}}}
                  :counter                       5
+                 :effects                       []
                  :minion-ids-summoned-this-turn []}))}
   ([data & kvs]
    (let [players-data (map-indexed (fn [index player-data]
@@ -799,13 +910,24 @@
   "Handles fatigue when a player's deck is empty, and they need to draw a card.
    Increases fatigue damage by 1 each time it occurs."
   {:test (fn []
-           (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1" :fatigue 0)}])
+           ; Create a state with initial fatigue counter of 0
+           (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore"
+                                                                 :id "h1"
+                                                                 :damage-taken 0
+                                                                 :fatigue-counter 0)}])
+                 ; Apply fatigue once
                  state-after-first-fatigue (handle-fatigue initial-state "p1")
+                 ; Apply fatigue a second time
                  state-after-second-fatigue (handle-fatigue state-after-first-fatigue "p1")]
+
+             ; After first fatigue: fatigue counter = 1, damage taken = 1
+             (is= (get-in state-after-first-fatigue [:players "p1" :hero :fatigue-counter]) 1)
              (is= (get-in state-after-first-fatigue [:players "p1" :hero :damage-taken]) 1)
-             (is= (get-in state-after-first-fatigue [:players "p1" :hero :fatigue]) 1)
-             (is= (get-in state-after-second-fatigue [:players "p1" :hero :damage-taken]) 3)
-             (is= (get-in state-after-second-fatigue [:players "p1" :hero :fatigue]) 2)))}
+
+             ; After second fatigue: fatigue counter = 2, damage taken = 1 + 2 = 3
+             (is= (get-in state-after-second-fatigue [:players "p1" :hero :fatigue-counter]) 2)
+             (is= (get-in state-after-second-fatigue [:players "p1" :hero :damage-taken]) 3)))}
+
   [state player-id]
   (let [fatigue-damage (+ (get-in state [:players player-id :hero :fatigue-counter]) 1)
         current-damage-taken (get-in state [:players player-id :hero :damage-taken])]
@@ -825,7 +947,7 @@
                                         (add-minion-to-board "p1" leper-gnome 0)
                                         (add-minion-to-board "p1" loot-hoarder 1)
                                         (add-minion-to-board "p1" boulderfist-ogre 2)
-                                        (add-card-to-deck "p1" "Test Card"))
+                                        (add-card-to-deck "p1" "Sheep")) ; Changed from "Test Card" to "Sheep"
                  state-after-leper-gnome (remove-minion state-with-minions "lg")
                  state-after-loot-hoarder (remove-minion state-after-leper-gnome "lh")
                  state-after-boulderfist (remove-minion state-after-loot-hoarder "bo")]
@@ -952,9 +1074,10 @@
 (defn deduct-player-mana
   "Reduces a player's mana by the specified cost and returns the updated game state."
   {:test (fn []
-           (is= (-> (create-game [{:mana 7}])
+           ; Test that mana is properly deducted
+           (is= (-> (create-game [{:hero (create-hero "Jaina Proudmoore" :mana 7)}])
                     (deduct-player-mana "p1" 6)
-                    (get-in [:players "p1" :mana]))
+                    (get-in [:players "p1" :hero :mana]))
                 1))}
   [state player-id mana-cost]
   {:pre [(map? state) (string? player-id) (int? mana-cost)]}
@@ -1021,6 +1144,7 @@
 
 (defn get-health
   "Returns the health of the character."
+
   {:test (fn []
            ; Uninjured minion
            (is= (-> (create-minion "Sheep")

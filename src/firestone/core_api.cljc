@@ -11,6 +11,9 @@
                                          reset-player-mana
                                          should-take-fatigue?
                                          handle-fatigue
+                                         create-game
+                                         create-hero
+                                         create-minion
                                          clear-sleepy-status-from-minions
                                          reset-can-attack
                                          remove-can-attack
@@ -19,6 +22,33 @@
                                          get-all-characters]]))
 
 (defn end-turn
+  {:test (fn []
+           ; Test ending turn changes player in turn
+           (let [state (create-game [])]
+             (is= (-> state
+                      (end-turn "p1")
+                      (:player-id-in-turn))
+                  "p2"))
+
+           ; Test ending turn when it's not your turn
+           (error? (-> (create-game [] :player-id-in-turn "p2")
+                       (end-turn "p1")))
+
+           ; Test end-turn effects (Moroes should summon a Steward)
+           (let [state (create-game [{:minions [(create-minion "Moroes" :id "m1")]}])]
+             (is= (-> state
+                      (end-turn "p1")
+                      (get-minions "p1")
+                      (count))
+                  2))
+
+           ; Test mana increases for next player
+           (let [state (create-game [{:hero (create-hero "Jaina Proudmoore" :max-mana 5 :mana 5)}
+                                     {:hero (create-hero "Gul'dan" :max-mana 5 :mana 5)}])]
+             (is= (-> state
+                      (end-turn "p1")
+                      (get-in [:players "p2" :hero :max-mana]))
+                  6)))}
   [state player-id]
   (when-not (= (get-player-id-in-turn state) player-id)
     (error "The player with id " player-id " is not in turn."))

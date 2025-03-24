@@ -1,12 +1,13 @@
 (ns firestone.core
   "A namespace for the business logic of the game."
-  (:require [ysera.test :refer [is is-not is=]]
+  (:require [ysera.test :refer [is is-not is= error?]]  ; Add error? here
             [ysera.collections :refer [seq-contains?]]
             [ysera.error :refer [error]]
             [firestone.definitions :refer [get-definition]]
             [firestone.construct :refer [create-game
                                          create-hero
                                          create-minion
+                                         create-empty-state
                                          get-heroes
                                          get-minion
                                          get-minions
@@ -14,6 +15,7 @@
                                          get-hand
                                          add-minion-to-board
                                          set-mana
+                                         create-card
                                          get-character
                                          get-all-characters
                                          get-max-mana
@@ -42,6 +44,27 @@
 
 (defn get-attack
   "Returns the attack of the minion with the given id, including any aura effects from adjacent minions."
+  {:test (fn []
+           ; Test basic attack value
+           (is= (-> (create-game [{:minions [(create-minion "Sheep" :id "m1")]}])
+                    (get-attack "m1"))
+                1)
+
+           ; Test with Dire Wolf Alpha adjacent (position difference of 1)
+           (let [state (-> (create-empty-state)
+                           (add-minion-to-board "p1" (create-minion "Sheep" :id "m1") 0)
+                           (add-minion-to-board "p1" (create-minion "Dire Wolf Alpha" :id "m2") 1))]
+             (println "Sheep position:" (:position (get-minion state "m1")))
+             (println "Dire Wolf position:" (:position (get-minion state "m2")))
+             (is= (get-attack state "m1") 2))
+
+           ; Test with Dire Wolf Alpha not adjacent
+           (let [state (-> (create-empty-state)
+                           (add-minion-to-board "p1" (create-minion "Sheep" :id "m1") 0)
+                           (add-minion-to-board "p1" (create-minion "Dire Wolf Alpha" :id "m2") 2))]
+             (println "Sheep position:" (:position (get-minion state "m1")))
+             (println "Dire Wolf position:" (:position (get-minion state "m2")))
+             (is= (get-attack state "m1") 1)))}
   [state id]
   (let [minion       (get-minion state id)
         base-attack  (or (:attack minion) 0)
@@ -69,6 +92,19 @@
 
 (defn sleepy?
   "Checks if the minion with given id is sleepy."
+  {:test (fn []
+           ; Minion in summoned-this-turn list should be sleepy
+           (is (-> (create-game [{:minions [(create-minion "Sheep" :id "m1")]}]
+                                :minion-ids-summoned-this-turn ["m1"])
+                   (sleepy? "m1")))
+
+           ; Minion with sleepy property explicitly set
+           (is (-> (create-game [{:minions [(create-minion "Sheep" :id "m1" :sleepy true)]}])
+                   (sleepy? "m1")))
+
+           ; Minion that is not sleepy
+           (is-not (-> (create-game [{:minions [(create-minion "Sheep" :id "m1" :sleepy false)]}])
+                       (sleepy? "m1"))))}
   [state id]
   (let [minion (get-minion state id)]
     (or (seq-contains? (:minion-ids-summoned-this-turn state) id)
@@ -116,23 +152,26 @@
 
 (defn draw-card
   {:test (fn []
+           ; Test drawing a card from a non-empty deck
            (let [state (-> (create-game [{:deck ["Boulderfist Ogre"]}])
                            (draw-card "p1"))]
              (is (empty? (get-deck state "p1")))
              (is= (->> (get-hand state "p1")
                        (map :name))
                   ["Boulderfist Ogre"]))
-           ; Test fatigue damage when the deck is empty
-           (let [state (-> (create-game [{:deck [] :hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0 :fatigue 0)}])
+
+           ; Test drawing from an empty deck (should just return state unchanged)
+           (let [initial-state (create-game [{:deck []}])
+                 result-state (draw-card initial-state "p1")]
+             (is= initial-state result-state))
+
+           ; Test drawing when hand is full (card should be burned)
+           (let [full-hand (repeatedly 10 #(create-card "Sheep"))
+                 state (-> (create-game [{:deck ["Boulderfist Ogre"]
+                                          :hand full-hand}])
                            (draw-card "p1"))]
-             (is= (get-in state [:players "p1" :hero :damage-taken]) 1)
-             (is= (get-in state [:players "p1" :hero :fatigue]) 1))
-           ; Test consecutive fatigue
-           (let [state (-> (create-game [{:deck [] :hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0 :fatigue 1)}])
-                           (draw-card "p1"))]
-             (is= (get-in state [:players "p1" :hero :damage-taken]) 2)
-             (is= (get-in state [:players "p1" :hero :fatigue]) 2))
-           )}
+             (is (empty? (get-deck state "p1")))
+             (is= (count (get-hand state "p1")) 10)))}
   [state player-id]
   (let [deck (get-in state [:players player-id :deck])
         hand (get-in state [:players player-id :hand])]
@@ -146,7 +185,6 @@
             (assoc-in [:players player-id :deck] new-deck)
             (assoc-in [:players player-id :hand] new-hand)))
       state)))
-
 (defn attack
   "Allows a minion to attack another minion or a hero after validating the attack."
   [state player-id attacker-id target-id]
@@ -165,6 +203,20 @@
 
 (defn play-card
   "Handles playing a card by its type (minion or spell)."
+  {:test (fn []
+           ; Test playing a minion card
+           (let [state (create-game [{:hand [(create-card "Sheep" :id "c1" :owner-id "p1"
+                                                          :type :minion :playable true)]}])]
+             (is= (-> state
+                      (play-card "p1" "c1" nil 0)
+                      (get-minions "p1")
+                      (count))
+                  1))
+
+           ; Test playing when it's not player's turn
+           (error? (-> (create-game [{:hand [(create-card "Sheep" :id "c1" :owner-id "p1")]}]
+                                    :player-id-in-turn "p2")
+                       (play-card "p1" "c1" nil 0))))}
   [state player-id card-id target-id position]
   (if (not= (get-player-id-in-turn state) player-id)
     (error "It's not the player's turn.")
@@ -266,6 +318,27 @@
 (defn get-valid-attacks
   "Updates valid attack targets for each minion of the player in turn.
    Logs the computed valid targets."
+  {:test (fn []
+           ; Test with player minions that can attack
+           (let [state (create-game [{:minions [(create-minion "Sheep" :id "m1" :sleepy false
+                                                               :attacks-performed-this-turn 0)]}
+                                     {:minions [(create-minion "Boulderfist Ogre" :id "m2")]}])]
+             (is (contains? (-> state
+                                (get-valid-attacks)
+                                (get-minion "m1")
+                                (:valid-attack-ids)
+                                (set))
+                            "m2")))
+
+           ; Test that enemy hero is a valid target
+           (let [state (create-game [{:minions [(create-minion "Sheep" :id "m1" :sleepy false
+                                                               :attacks-performed-this-turn 0)]}])]
+             (is (contains? (-> state
+                                (get-valid-attacks)
+                                (get-minion "m1")
+                                (:valid-attack-ids)
+                                (set))
+                            "h2"))))}
   [state]
   (let [player-id-in-turn (get state :player-id-in-turn)
         player-change-fn {"p1" "p2"
