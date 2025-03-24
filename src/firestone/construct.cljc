@@ -77,6 +77,71 @@
       card
       (apply assoc card kvs))))
 
+(defn get-other-player-id
+  "Returns the player ID of the player that is not associated with the given player-id.
+  If player-id is 'p1', it returns 'p2', and vice versa."
+  [player-id]
+  (if (= player-id "p1") "p2" "p1"))
+
+(defn effects-parser
+  "The central function for processing all effects in the game."
+  [state characters player-id event & [args]]
+  (let [enemy-id (get-other-player-id player-id)
+        args (or args {})
+        target-id (:target-id args)
+        attacker-id (:attacker-id args)]
+
+    ;; First, handle any secret effects if this is a hero-attacked event
+    (let [state-after-secrets
+          (if (= event :hero-attacked)
+            (let [secrets (get-in state [:players player-id :secrets])]
+              (reduce
+                (fn [current-state secret]
+                  (let [secret-name (:name secret)
+                        effect-name (if (clojure.string/ends-with? secret-name " spell effect")
+                                      secret-name
+                                      (str secret-name " spell effect"))
+                        secret-def (get-definition effect-name)]
+
+                    (if-let [effect-fn (get secret-def :hero-attacked)]
+                      (effect-fn current-state (:id secret) player-id enemy-id args)
+                      current-state)))
+                state
+                secrets))
+            state)]
+
+      ;; Process regular character effects
+      (reduce
+        (fn [current-state character]
+          (cond
+            ;; Handle direct battlecry effects from card definitions
+            (and (= event :battlecry)
+                 (contains? (get-definition (:name character)) :battlecry))
+            (let [effect-fn (get (get-definition (:name character)) :battlecry)]
+              (effect-fn current-state (:id character) player-id enemy-id target-id))
+
+            ;; Handle effects listed in the character's :effects field
+            :else
+            (let [applicable-effects (filter #(when (string? %)
+                                                (let [effect-def (get-definition %)]
+                                                  (contains? effect-def event)))
+                                             (:effects character))]
+              (reduce
+                (fn [state-after-effect effect-name]
+                  (let [effect-def (get-definition effect-name)
+                        effect-fn (get effect-def event)]
+                    (if effect-fn
+                      (effect-fn state-after-effect
+                                 (:id character)
+                                 player-id
+                                 enemy-id
+                                 (if (= event :hero-attacked) args target-id))
+                      state-after-effect)))
+                current-state
+                applicable-effects))))
+        state-after-secrets
+        characters))))
+
 (defn get-mana-cost
   "Returns the mana cost of the minion (or card) with the given name."
   {:test (fn []
@@ -139,13 +204,14 @@
 
 
 (defn create-empty-state
-  "Creates an empty state with the given heroes."
+  "Creates an empty state with the given heroes and initializes the effects queue.
+   If no heroes are provided, two default 'Jaina Proudmoore' heroes are used.
+   The returned state includes an :effects key for centralized effect handling."
   {:test (fn []
-           ; Jaina Proudmoore will be the default hero
+           ;; Jaina Proudmoore will be the default hero
            (is= (create-empty-state [(create-hero "Jaina Proudmoore")
                                      (create-hero "Jaina Proudmoore")])
                 (create-empty-state))
-
            (is= (create-empty-state [(create-hero "Jaina Proudmoore" :id "r")
                                      (create-hero "Gul'dan")])
                 {:player-id-in-turn             "p1"
@@ -155,6 +221,7 @@
                                                        :deck    []
                                                        :hand    []
                                                        :minions []
+                                                       :secrets []
                                                        :hero    {:name         "Jaina Proudmoore"
                                                                  :id           "r"
                                                                  :damage-taken 0
@@ -166,18 +233,17 @@
                                                        :deck    []
                                                        :hand    []
                                                        :minions []
+                                                       :secrets []
                                                        :hero    {:name         "Gul'dan"
                                                                  :id           "h2"
                                                                  :damage-taken 0
                                                                  :fatigue      0
                                                                  :entity-type  :hero}}}
                  :counter                       1
-                 :minion-ids-summoned-this-turn []}))}
-  ; Multiple arity of a function [https://clojure.org/guides/learn/functions#_multi_arity_functions]
-  ([]
-   (create-empty-state []))
+                 :minion-ids-summoned-this-turn []
+                 :effects                       []}))}
+  ([] (create-empty-state []))
   ([heroes]
-   ; Creates Jaina Proudmoore heroes if heroes are missing.
    (let [heroes (->> (concat heroes [(create-hero "Jaina Proudmoore")
                                      (create-hero "Jaina Proudmoore")])
                      (take 2))]
@@ -196,7 +262,8 @@
                                                     (assoc a (:id v) v))
                                                   {}))
       :counter                       1
-      :minion-ids-summoned-this-turn []})))
+      :minion-ids-summoned-this-turn []
+      :effects                       []})))
 
 
 (defn get-player
@@ -288,9 +355,7 @@
   {:pre [(contains? state :counter)]}
   [(update state :counter inc) (:counter state)])
 
-(declare battlecry)
-(declare trigger-spell)
-
+(declare get-all-characters)
 
 (defn add-minion-to-board
   "Adds a minion with a given position to a player's minions and updates the other minions' positions."
@@ -329,24 +394,31 @@
                            [state (str "m" value)]))
             [state time-id] (generate-time-id state)
             ready-minion (assoc minion :position position
-                                       :effects (if (contains? minion :effects) (:effects minion) (let [effect (get (get-definition minion) :effect)] (if effect [effect] [])))
+                                       :effects (if (contains? minion :effects) (:effects minion) (let [effect (get (get-definition (:name minion)) :effect)] (if effect [effect] [])))
                                        :owner-id player-id
                                        :id id
                                        :added-to-board-time-id time-id)]
-        (-> state (update-in
-                    [:players player-id :minions]
-                    (fn [minions]
-                      (conj (->> minions
-                                 (mapv (fn [m]
-                                         (if (< (:position m) position)
-                                           m
-                                           (update m :position inc)))))
-                            ready-minion)))
-            ;(effects-parser (get-all-characters state) player-id :summon-minion)
-            )
-        ))))
+        (let [state-with-minion (-> state (update-in
+                                            [:players player-id :minions]
+                                            (fn [minions]
+                                              (conj (->> minions
+                                                         (mapv (fn [m]
+                                                                 (if (< (:position m) position)
+                                                                   m
+                                                                   (update m :position inc)))))
+                                                    ready-minion))))]
 
+          ;; Process summon-minion events
+          (let [state-after-summon (effects-parser state-with-minion
+                                                   (get-all-characters state-with-minion)
+                                                   player-id
+                                                   :summon-minion)]
 
+            ;; Process aura effects AFTER summoning
+            (effects-parser state-after-summon
+                            (get-minions state-after-summon player-id)
+                            player-id
+                            :process-auras)))))))
 
 (defn add-minions-to-board
   {:test (fn []
@@ -588,7 +660,6 @@
   ([]
    (create-game [])))
 
-
 (defn get-max-mana
   [state player-id]
   (get-in state [:players player-id :hero :max-mana]))
@@ -596,30 +667,6 @@
 (defn get-mana
   [state player-id]
   (get-in state [:players player-id :hero :mana]))
-
-(defn set-player-mana
-  "Sets the current mana for a specified player. If mana is provided, it updates the player's mana in the state"
-  {:test (fn []
-           (is= (as-> (create-empty-state) $
-                      (set-player-mana $ "p1" 3)
-                      (get-in $ [:players "p1" :mana]))
-                3))}
-  [state player-id mana]
-  (if mana
-    (assoc-in state [:players player-id :hero :mana] mana)
-    state))
-
-(defn set-player-max-mana
-  "Sets the maximum mana for a specified player. If max-mana is provided, it updates the player's max mana in the state."
-  {:test (fn []
-           (is= (as-> (create-empty-state) $
-                      (set-player-max-mana $ "p1" 3)
-                      (get-in $ [:players "p1" :max-mana]))
-                3))}
-  [state player-id max-mana]
-  (if max-mana
-    (assoc-in state [:players player-id :hero :max-mana] max-mana)
-    state))
 
 (defn reset-player-mana
   "Resets a player's mana at the end of their turn. Increases max mana by 1 if it's less than 10, and sets current mana to that new max."
@@ -701,7 +748,6 @@
   [state player-id]
   (:hero (get-player state player-id)))
 
-
 (defn replace-minion
   "Replaces a minion with the same id by the given new-minion."
   {:test (fn []
@@ -722,93 +768,14 @@
                           m))
                       minions)))))
 
-
 (defn update-minion
-  "Updates the value of the given key for the minion with the given id. If function-or-value is a value it will be the
-   new value, else if it is a function it will be applied on the existing value to produce the new value."
-  {:test (fn []
-           (is= (-> (create-game [{:minions [(create-minion "Leper Gnome" :id "m")]}])
-                    (update-minion "m" :damage-taken inc)
-                    (get-minion "m")
-                    (:damage-taken))
-                1)
-           (is= (-> (create-game [{:minions [(create-minion "Leper Gnome" :id "m")]}])
-                    (update-minion "m" :damage-taken 2)
-                    (get-minion "m")
-                    (:damage-taken))
-                2))}
-
-  [state id key function-or-value]
-  ;; Print the state before updating
-  (println "Before update:" state)
-
-  (let [minion (get-minion state id)
-        new-state (if minion
-                    (let [updated-minion (if (fn? function-or-value)
-                                           (update minion key function-or-value)
-                                           (assoc minion key function-or-value))]
-                      (replace-minion state updated-minion))
-                    state)]
-    ;; Print the state after updating
-    (println "After update:" new-state)
-
-    new-state))
-
-
-(defn update-minion-old
-  "Updates the value of the given key for the minion with the given id.
-   If function-or-value is a value, it will be the new value;
-   else if it is a function, it will be applied to the existing value to produce the new value.
-
-   Additionally, prints the state before and after the update for debugging purposes."
-  [state id key function-or-value]
-
-  ;; Print the entire state before the update (optional and can be commented out if too verbose)
-  ;; (println "State before update:" state)
-
-  ;; Alternatively, print only the relevant player's board before update
-  (let [minion (get-minion state id)]
-    (if minion
-      (let [owner-id (:owner-id minion)
-            player-state (get-in state [:players owner-id])
-            minions-before (:board-entities player-state)
-            minion-before (some #(when (= (:id %) id) %) minions-before)]
-
-        (println "\n--- Update Minion Debugging ---")
-        (println "State before update (Player:" owner-id "):")
-        (clojure.pprint/pprint minion-before)
-
-        ;; Perform the update
-        (let [updated-minion (if (fn? function-or-value)
-                               (update minion key function-or-value)
-                               (assoc minion key function-or-value))
-              new-state (replace-minion state updated-minion)
-              player-state-after (get-in new-state [:players owner-id])
-              minions-after (:board-entities player-state-after)
-              minion-after (some #(when (= (:id %) id) %) minions-after)]
-
-          ;; Print the updated minion details
-          (println "Updating minion:" id "key:" key "with:" function-or-value)
-          (println "Original minion:")
-          (clojure.pprint/pprint minion-before)
-          (println "Updated minion:")
-          (clojure.pprint/pprint updated-minion)
-
-          ;; Print the state after the update
-          (println "State after update (Player:" owner-id "):")
-          (clojure.pprint/pprint minion-after)
-          (println "--- End of Debugging ---\n")
-
-          ;; Return the updated state
-          new-state))
-      ;; If the minion is not found, print a message and return the unchanged state
-      (do
-        (println "\n--- Update Minion Debugging ---")
-        (println "Minion not found:" id)
-        (println "State remains unchanged.")
-        (println "--- End of Debugging ---\n")
-        state))))
-
+   "Updates the value of the given key for the minion with the given id."
+   [state id key function-or-value]
+   (let [minion (get-minion state id)
+         new-value (if (fn? function-or-value)
+                     (function-or-value (get minion key))
+                     function-or-value)]
+     (replace-minion state (assoc minion key new-value))))
 
 (defn should-take-fatigue?
   "Returns truthy if the player should take fatigue damage (i.e., their deck is empty), falsey otherwise."
@@ -846,16 +813,6 @@
         (assoc-in [:players player-id :hero :fatigue-counter] fatigue-damage)
         (assoc-in [:players player-id :hero :damage-taken] (+ current-damage-taken fatigue-damage)))))
 
-(defn trigger-deathrattle
-  [state minion]
-  (let [minion-name (:name minion)
-        owner-id    (:owner-id minion)
-        card-def    (get-definition minion-name)  ;; or however you retrieve definitions
-        dt-fn       (:deathrattle card-def)]
-    (if dt-fn
-      (dt-fn state {:player-id owner-id})  ;; Pass as a map
-      state)))
-
 (defn remove-minion
   "Removes a minion with the given id from the state, triggering its Deathrattle if applicable."
   {:test (fn []
@@ -890,14 +847,23 @@
   (let [minion (get-minion state id)
         owner-id (:owner-id minion)]
     (if minion
-      (let [card-def (get-definition (:name minion))  ;; Retrieve card definition
-            has-deathrattle? (:deathrattle card-def)
-            state-after-deathrattle (if has-deathrattle?
-                                      (trigger-deathrattle state minion)
-                                      state)]
-        (update-in state-after-deathrattle [:players owner-id :minions]
-                   (fn [minions]
-                     (remove (fn [m] (= (:id m) id)) minions))))
+      (let [state-after-deathrattle (effects-parser state [minion] owner-id :deathrattle)
+            state-after-removal (update-in state-after-deathrattle
+                                           [:players owner-id :minions]
+                                           (fn [minions]
+                                             (let [position (:position minion)]
+                                               (->> minions
+                                                    (remove (fn [m] (= (:id m) id)))
+                                                    (mapv (fn [m]
+                                                            (if (> (:position m) position)
+                                                              (update m :position dec)
+                                                              m)))))))]
+
+        ;; Process aura effects AFTER removal and position updates
+        (effects-parser state-after-removal
+                        (get-minions state-after-removal owner-id)
+                        owner-id
+                        :process-auras))
       state)))
 
 
@@ -914,25 +880,6 @@
                 ["n2" "n3"]))}
   [state & ids]
   (reduce remove-minion state ids))
-
-
-(defn remove-card-from-deck
-  {:test (fn []
-           (let [state (-> (create-game [{:deck [(create-card "Leper Gnome" :id "c1")
-                                                 (create-card "Boulderfist Ogre" :id "c2")
-                                                 (create-card "Leper Gnome" :id "c3")]}]))
-                 card (->> (get-deck state "p1")
-                           (second))]
-             (is= (as-> state $
-                        (remove-card-from-deck $ "p1" card)
-                        (get-deck $ "p1")
-                        (map :id $))
-                  ["c1" "c3"])))}
-  [state player-id card]
-  (update-in state [:players player-id :deck]
-             (fn [deck]
-               (->> deck
-                    (remove (fn [c] (= (:id card) (:id c))))))))
 
 
 (defn remove-card-from-hand
@@ -953,12 +900,6 @@
              (fn [hand]
                (->> hand
                     (remove (fn [c] (= (:id card) (:id c))))))))
-
-(defn get-card
-  [state card-id]
-  {:pre [(map? state) (string? card-id)]}
-  (-> (filter (fn [x] (= (:id x) card-id)) (into [] (concat (get-in state [:players "p1" :hand]) (get-in state [:players "p2" :hand]))))
-      (first)))
 
 (defn can-play-minion?
   "Determines if a player can play a specified minion card"
@@ -1038,162 +979,6 @@
     (-> state
         (add-minion-to-board player-id minion position))))
 
-
-
-(defn play-minion-card
-  "Handles playing a card by its type (minion or spell). Incorporates logic to check if the card is playable and deduct mana."
-  [state player-id card-id position]
-  ;; Retrieve the card directly within the function
-  (let [card (-> (filter (fn [x] (= (:id x) card-id))
-                         (into []
-                               (concat (get-in state [:players "p1" :hand])
-                                       (get-in state [:players "p2" :hand]))))
-                 (first))]
-    ;; Handle minion cards
-    (cond
-      (= (:type card) :minion)
-      (if (can-play-minion? state player-id card)
-        (-> (deduct-player-mana state player-id (-> (get-definition (:name card))
-                                                    (:mana-cost)))
-            (remove-card-from-hand player-id card)
-            (put-card-on-board player-id card position)))
-      ;handle battlecry
-      ;handle combo, update playable cards, update combo cards and the cards-played-this-turn key
-
-
-      ; (= (:type card) :spell)       ....implementation left for spells
-      )))
-
-
-(defn play
-  "Allows a player to play a minion card from their hand to the board if they have enough mana."
-  {:test (fn []
-           ; Test playing a card with sufficient mana
-           (let [initial-state (-> (create-game [{:hand [(create-card "Leper Gnome" :id "c1" :mana-cost 5)]
-                                                  :mana 10}]))
-                 state-after-play (play initial-state "p1" "c1" 0)]
-             (is= (get-in state-after-play [:players "p1" :mana]) 5)
-             (is= (count (get-hand state-after-play "p1")) 0)
-             (is= (get-in state-after-play [:players "p1" :minions 0 :name]) "Leper Gnome")))}
-  [state player-id card-id position]
-  (let [hand (get-hand state player-id)
-        card (some #(when (= (:id %) card-id) %) hand)
-        mana-cost (:mana-cost card)
-        player-mana (get-in state [:players player-id :hero :mana])]
-
-    ;TODO: Check if player has 7 cards on board or not.
-    (if (and card (>= player-mana mana-cost))
-      (let [minion (create-minion (:name card))]
-        (-> state
-            (update-in [:players player-id :hero :mana] - mana-cost)
-            (update-in [:players player-id :hand] #(remove (fn [c] (= (:id c) card-id)) %))
-            (add-minion-to-board player-id minion position)))
-      state)))
-
-(defn trigger-battlecry
-  "Triggers the Battlecry effect of a minion"
-  {:test (fn []
-           (let [initial-state (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1" :damage-taken 0)}
-                                             {:hero (create-hero "Gul'dan" :id "h2" :damage-taken 0)
-                                              :minions [(create-minion "Sheep" :id "s1" :attack 1 :owner-id "p2")]}])
-                 silver-hand-knight (create-minion "Silver Hand Knight" :id "shk" :owner-id "p1")
-                 state-with-knight (add-minion-to-board initial-state "p1" silver-hand-knight 0)
-
-                 stampeding-kodo (create-minion "Stampeding Kodo" :id "sk" :owner-id "p1")
-                 state-with-kodo (add-minion-to-board state-with-knight "p1" stampeding-kodo 1)
-                 twilight-drake (create-minion "Twilight Drake" :id "td" :owner-id "p1")
-                 state-with-card (add-card-to-hand state-with-kodo "p1" "Test Card")
-                 state-with-drake (add-minion-to-board state-with-card "p1" twilight-drake 2)
-                 dr-boom (create-minion "Dr. Boom" :id "db" :owner-id "p1")
-                 state-with-boom (add-minion-to-board initial-state "p1" dr-boom 0)
-                 ]
-
-             (is= (count (get-minions state-with-knight "p1")) 2)
-             (is= (get-in (get-minions state-with-knight "p1") [1 :name]) "Squire")
-             (is= (count (get-minions state-with-kodo "p2")) 0)
-             (is= (get-in (get-minion state-with-drake "td") [:health]) 2)
-             ; Test Dr. Boom Battlecry (summoning two Boom Bots)
-             (is= (count (get-minions state-with-boom "p1")) 3)))}
-  [state minion target-id]
-  (let [minion-name (:name minion)
-        owner-id    (:owner-id minion)
-        card-def    (get-definition minion-name)  ;; or however you retrieve definitions
-        bc-fn       (:battlecry card-def)]
-    (if bc-fn
-      ;; Call the battlecry function with the appropriate params
-      (bc-fn state :player-id owner-id :target-id target-id)
-      ;; If there is no :battlecry in the definition, just return the state
-      state)))
-
-(defn trigger-stealth
-  "Triggers the stealth effect for minions with the stealth ability"
-  {:test (fn []
-           ; Test Moroes
-           (let [initial-state (create-game [{:minions [(create-minion "Moroes" :id "m1" :owner-id "p1")]}])
-                 result-state (trigger-stealth initial-state "m1")
-                 player-minions (get-minions result-state "p1")]
-             (is= (count player-minions) 2)
-             (is= (:name (first player-minions)) "Moroes")
-             (is= (:name (second player-minions)) "Steward"))
-
-           ; Test Blood Imp
-           (let [initial-state (create-game [{:minions [(create-minion "Blood Imp" :id "m1" :owner-id "p1")
-                                                        (create-minion "Boulderfist Ogre" :id "m2" :owner-id "p1" :health 7)]}])
-                 result-state (trigger-stealth initial-state "m1")
-                 ogre (get-minion result-state "m2")]
-             (is= (:health ogre) 8))
-
-           ; Test Blood Imp with no other minions
-           (let [initial-state (create-game [{:minions [(create-minion "Blood Imp" :id "m1" :owner-id "p1")]}])
-                 result-state (trigger-stealth initial-state "m1")]
-             (is= result-state initial-state)))}
-  [state minion-id]
-  (let [minion (get-minion state minion-id)
-        player-id (:owner-id minion)]
-    (case (:name minion)
-      "Moroes"
-      (let [[new-state steward-id] (generate-id state)
-            steward (create-minion "Steward" :id steward-id :owner-id player-id)]
-        (add-minion-to-board new-state player-id steward (count (get-minions new-state player-id))))
-
-      "Blood Imp"
-      (let [friendly-minions (filter #(and (= (:owner-id %) player-id)
-                                           (not= (:id %) minion-id))
-                                     (get-minions state player-id))]
-        (if (seq friendly-minions)
-          (let [random-minion (rand-nth friendly-minions)]
-            (update-minion state (:id random-minion) :health inc))
-          state))
-
-      state)))
-
-(defn get-attack
-  "Returns the attack of the minion with the given id."
-  {:test (fn []
-           (is= (-> (create-game [{:minions [(create-minion "Sheep" :id "m")]}])
-                    (get-attack "m"))
-                1))}
-  [state id]
-  (let [minion (get-minion state id)
-        definition (get-definition minion)]
-    (println "Give id " id)
-    (println "attack of minion " :attack definition)
-    (:attack definition)))
-
-(defn mark-minion-attacked
-  "Marks the minion as having attacked by setting its :attacks-performed-this-turn to 1."
-  {:test (fn []
-           (is= (-> (create-game [{:minions [(create-minion "Boulderfist Ogre" :id "bg")]}])
-                    (mark-minion-attacked "bg")
-                    (get-in [:players "p1" :minions 0 :attacks-performed-this-turn]))
-                1)
-           (is= (-> (create-game [{:minions [(create-minion "Boulderfist Ogre" :id "bg")]}])
-                    (get-in [:players "p1" :minions 0 :attacks-performed-this-turn]))
-                0))}
-  [state id]
-  {:pre [(map? state) (string? id)]}
-  (update-minion state id :attacks-performed-this-turn 1))
-
 (defn update-hero
   "Updates the value of the given key for the hero with the given id. If function-or-value is a value it will be the
    new value, else if it is a function it will be applied on the existing value to produce the new value."
@@ -1217,144 +1002,143 @@
             player-id))
         (:players state)))
 
-(defn trigger-minion-damaged
-  "Triggers the :minion-damaged event for a specific minion."
-  [state minion-id]
-  (let [minion (get-minion state minion-id)]
-    (if minion
-      (let [handler (:on-minion-damaged minion)]
-        (if handler
-          (handler state minion)
-          state))
-      state)))
+(defn get-character
+  "Returns the character with the given id from the state."
+  {:test (fn []
+           (is= (-> (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1")}])
+                    (get-character "h1")
+                    (:name))
+                "Jaina Proudmoore")
+           (is= (-> (create-game [{:minions [(create-minion "Sheep" :id "m")]}])
+                    (get-character "m")
+                    (:name))
+                "Sheep"))}
+  [state id]
+  (or (some (fn [m] (when (= (:id m) id) m))
+            (get-minions state))
+      (some (fn [h] (when (= (:id h) id) h))
+            (get-heroes state))))
 
-(defn trigger-minion-damaged
-  "Triggers the :minion-damaged event for a specific minion, ensuring state is updated properly."
-  [state minion-id]
-  (let [minion (get-minion state minion-id)]
-    (if minion
-      (let [handler (:on-minion-damaged minion)]
-        (if handler
-          (let [new-state (handler state minion)]
-            (if new-state
-              new-state
-              (do (println "Warning: Handler did not return a new state for minion" minion-id)
-                  state)))
-          state))
-      (do (println "Warning: Minion not found with id:" minion-id)
-          state))))
+(defn get-health
+  "Returns the health of the character."
+  {:test (fn []
+           ; Uninjured minion
+           (is= (-> (create-minion "Sheep")
+                    (get-health))
+                1)
+           ; Injured minion
+           (is= (-> (create-minion "Boulderfist Ogre" :damage-taken 1)
+                    (get-health))
+                6)
+           ; Minion in a state
+           (is= (-> (create-game [{:minions [(create-minion "Sheep" :id "m")]}])
+                    (get-health "m"))
+                1)
+           ; Uninjured hero
+           (is= (-> (create-hero "Jaina Proudmoore")
+                    (get-health))
+                30)
+           ; Injured hero
+           (is= (-> (create-hero "Jaina Proudmoore" :damage-taken 2)
+                    (get-health))
+                28)
+           ; Hero in a state
+           (is= (-> (create-game [{:hero (create-hero "Jaina Proudmoore" :id "h1")}])
+                    (get-health "h1"))
+                30))}
+  ([character]
+   {:pre [(map? character) (contains? character :damage-taken)]}
+   (let [definition (get-definition character)]
+     (- (:health definition) (:damage-taken character))))
+  ([state id]
+   (get-health (get-character state id))))
 
-;TODO: Handle stealth
+(defn get-all-characters
+  "Returns all characters (hero + minions) in the game state.
+   This includes all heroes and minions from both players."
+  [state]
+  (let [heroes (get-heroes state)
+        minions (get-minions state)]
+    (concat heroes minions)))
+
 (defn handle-minion-attack-on-minion
-  "Handles the attack logic when a minion attacks another minion, including event dispatching."
+  "Handles minion vs. minion combat"
   [state attacker-id target-id]
   (let [attacker (get-minion state attacker-id)
-        target (get-minion state target-id)]
-    (if (and attacker target)
-      (let [attacker-damage (:attack attacker)
-            target-damage (:attack target)
-            state-after-attack (-> state
-                                   (update-minion attacker-id :health #(- % target-damage))
-                                   (update-minion target-id :health #(- % attacker-damage))
-                                   (update-minion attacker-id :attacks-performed-this-turn inc))]
-        ;; Dispatch :minion-damaged for attacker and target
-        (-> state-after-attack
-            (trigger-minion-damaged attacker-id)
-            (trigger-minion-damaged target-id)
-            ;; Remove minions with health <= 0
-            (cond-> (and (get-minion state-after-attack attacker-id)
-                         (<= (:health (get-minion state-after-attack attacker-id)) 0))
-                    (remove-minion attacker-id))
-            (cond-> (and (get-minion state-after-attack target-id)
-                         (<= (:health (get-minion state-after-attack target-id)) 0))
-                    (remove-minion target-id))))
-      state)))
+        target (get-minion state target-id)
+        attacker-player-id (:owner-id attacker)
+        target-player-id (:owner-id target)
 
-;TODO: Handle stealth
+        ;; Calculate and apply combat damage
+        state-after-damage (-> state
+                               (update-minion attacker-id :damage-taken #(+ % (:attack target)))
+                               (update-minion target-id :damage-taken #(+ % (:attack attacker)))
+                               (update-minion attacker-id :attacks-performed-this-turn inc)
+                               (update-minion attacker-id :can-attack nil))
+
+        ;; Process damage effects
+        state-after-effects (effects-parser state-after-damage
+                                            [(get-minion state-after-damage attacker-id)
+                                             (get-minion state-after-damage target-id)]
+                                            attacker-player-id
+                                            :damage-minion)]
+
+    ;; Check for and process deaths
+    (let [updated-attacker (get-minion state-after-effects attacker-id)
+          updated-target (get-minion state-after-effects target-id)
+          final-state state-after-effects]
+
+      ;; Handle deaths if needed
+      (cond-> final-state
+              (and updated-attacker (<= (get-health updated-attacker) 0))
+              (remove-minion attacker-id)
+
+              (and updated-target (<= (get-health updated-target) 0))
+              (remove-minion target-id)))))
+
 (defn handle-minion-attack-on-hero
-  "Handles the attack logic when a minion attacks a hero."
+  "Handles minion vs. hero combat"
   [state attacker-id target-id]
-  (println "gamestate before attack on hero" state)
-  (let [player-id (get-player-id-by-hero-id state target-id)] ; Retrieve player ID based on hero ID
-    (if player-id
-      (let [attack-value (get-attack state attacker-id)]
-        (if (nil? attack-value)
-          (do
-            ;(println "Attack value is nil for attacker-id:" attacker-id)
-            (error "Invalid attack value."))
-          (let [updated-state (update-hero state player-id :damage-taken #(+ % attack-value))]
-            ;(println "gamestate after attack on hero" updated-state)
-            (mark-minion-attacked updated-state attacker-id))))
-      (do
-        (println "Player owning the target hero not found for hero-id:" target-id)
-        (error "Player owning the target hero not found.")))))
+  (let [attacker (get-minion state attacker-id)
+        attacker-player-id (:owner-id attacker)
+        target-player-id (get-player-id-by-hero-id state target-id)
+        attack-value (:attack attacker)
+        target-hero (get-hero state target-player-id)
 
-(defn use-hero-power
-  "Allows a player to use their hero power.
-   - For Jaina Proudmoore's Fireblast, a target-id must be provided.
-   - For Gul'dan's Life Tap, no target is needed.
-   Ensures the hero power is used only once per turn.
-   Returns the updated state."
-  [state player-id & [target-id]]
-  (let [hero (:hero (get-player state player-id))
-        power-name (:hero-power hero)
-        power-def (get-definition power-name) ;; Retrieves from hero-power-definitions
-        current-mana (get-mana state player-id)]
-    (cond
-      ;; Check if hero power is already used this turn
-      (:hero-power-used hero)
-      (do
-        (println "Hero power has already been used this turn.")
-        state)
+        ;; Process secrets and hero-attacked effects
+        state-after-secrets (effects-parser state
+                                            [target-hero]
+                                            target-player-id
+                                            :hero-attacked
+                                            {:attacker-id attacker-id
+                                             :attacker-player-id attacker-player-id})
 
-      ;; Check if player has enough mana
-      (< current-mana (:mana-cost power-def))
-      (do
-        (println "Not enough mana to use hero power.")
-        state)
+        ;; Apply attack damage and update attacker state
+        updated-state (-> state-after-secrets
+                          (update-hero target-player-id :damage-taken #(+ % attack-value))
+                          (update-minion attacker-id :states #(filter (fn [state] (not= state :stealth)) %))
+                          (update-minion attacker-id :can-attack nil)
+                          (update-minion attacker-id :attacks-performed-this-turn inc))]
 
-      :else
-      (let [power-fn (:power power-def)
-            state-after-mana (deduct-player-mana state player-id (:mana-cost power-def))
-            ;; Invoke the power function with appropriate arguments
-            state-after-use (cond
-                              (= power-name "Fireblast")
-                              (if target-id
-                                (power-fn state-after-mana target-id)
-                                (do
-                                  (println "Fireblast requires a target.")
-                                  state-after-mana))
-
-                              (= power-name "Life Tap")
-                              (power-fn state-after-mana player-id)
-
-                              :else
-                              (do
-                                (println "Unknown hero power.")
-                                state-after-mana))
-            ;; Mark hero power as used
-            updated-state (assoc-in state-after-use [:players player-id :hero :hero-power-used] true)]
-        updated-state))))
-
+    ;; Process any additional attack effects
+    (effects-parser updated-state
+                    (cons attacker (get-all-characters updated-state))
+                    attacker-player-id
+                    :attack
+                    {:target-id target-id})))
 
 (defn clear-sleepy-status-from-minions
-  "Removes sleepy from minion-ids-summoned-this-turn list.
-   Logs before and after updating each minion."
+  "Removes sleepy from minion-ids-summoned-this-turn list."
   [state]
-  (println "Entering clear-sleepy-status-from-minions with state:" (pr-str state))
   (let [minion-ids (:minion-ids-summoned-this-turn state)]
     (reduce
       (fn [current-state minion-id]
-        (if (get-minion current-state minion-id)              ; Check if minion still exists
-          (do
-            (println "Clearing sleepy status for minion" minion-id)
-            (-> current-state
-                (update-minion minion-id :sleepy false)          ; Clear sleepy status by setting false
-                (update-minion minion-id :can-attack 1)))         ; Ensure can-attack is consistent
-          (do
-            (println "Minion" minion-id "not found, skipping")
-            current-state)))
-      state
+        (if-let [minion (get-minion current-state minion-id)]
+          ;; Explicitly set the sleepy property to false
+          (update-minion current-state minion-id :sleepy false)
+          current-state))
+      ;; Clear the summoned this turn list
+      (assoc state :minion-ids-summoned-this-turn [])
       minion-ids)))
 
 

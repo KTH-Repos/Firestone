@@ -4,7 +4,8 @@
             [ysera.error :refer [error]]
             [firestone.core :refer [draw-card
                                     get-valid-attacks]]
-            [firestone.construct :refer [create-game
+            [firestone.construct :refer [get-minions
+                                         effects-parser
                                          update-hero
                                          get-player-id-in-turn
                                          reset-player-mana
@@ -15,49 +16,65 @@
                                          remove-can-attack
                                          reset-attacks-performed-this-turn
                                          get-hero-player-id
-                                         get-max-mana]]))
-
+                                         get-all-characters]]))
 
 (defn end-turn
   [state player-id]
-  ;; 1) Verify that the correct player is in turn
   (when-not (= (get-player-id-in-turn state) player-id)
     (error "The player with id " player-id " is not in turn."))
 
-  (println "State before end-turn:" state)
+  (let [player-change-fn {"p1" "p2", "p2" "p1"}
+        next-player-id (player-change-fn player-id)
 
-  (let [player-change-fn {"p1" "p2"
-                          "p2" "p1"}
-        next-player-id   (player-change-fn player-id)
+        ;; Process end-of-turn effects
+        current-player-minions (get-minions state player-id)
+        current-player-hero (get-hero-player-id state player-id)
+        state-after-end-turn-effects (effects-parser state
+                                                     (cons current-player-hero current-player-minions)
+                                                     player-id
+                                                     :end-of-turn)
 
-        ;; 2) First, apply the sequence of transformations via ->
-        ;;    (excluding the if, since if is a special form).
-        updated-state
-        (-> state
-            (clear-sleepy-status-from-minions)
-            (reset-can-attack next-player-id)
-            (remove-can-attack player-id)
-            (reset-attacks-performed-this-turn next-player-id)
-            ;; Note: Update the hero for the *next* player rather than the current one.
-            (update-hero (:id (get-hero-player-id state next-player-id)) :has-used-your-turn false)
-            (assoc :minion-ids-summoned-this-turn [])
-            (assoc :player-id-in-turn next-player-id)
-            (reset-player-mana next-player-id)
-            (get-valid-attacks))
+        ;; Process this-turn effects that need to expire
+        all-characters (get-all-characters state-after-end-turn-effects)
+        state-after-this-turn (effects-parser state-after-end-turn-effects
+                                              all-characters
+                                              player-id
+                                              :this-turn)
 
-        ;; 3) Now handle the branching after we've gotten updated-state
-        final-state
-        (if (should-take-fatigue? updated-state next-player-id)
-          (handle-fatigue updated-state next-player-id)
-          (draw-card updated-state next-player-id))
+        ;; Apply basic state updates
+        updated-state (-> state-after-this-turn
+                          (clear-sleepy-status-from-minions)
+                          (reset-can-attack next-player-id)
+                          (remove-can-attack player-id)
+                          (reset-attacks-performed-this-turn next-player-id)
+                          (update-hero (:id (get-hero-player-id state next-player-id)) :has-used-your-turn false)
+                          (assoc :minion-ids-summoned-this-turn [])
+                          (assoc :player-id-in-turn next-player-id)
+                          (reset-player-mana next-player-id))
 
-        ;; 4) Update hero's max mana (or whatever else comes after)
-        updated-max-mana (get-max-mana final-state next-player-id)
+        ;; Process next-turn effects for the player beginning their turn
+        next-player-characters (cons (get-hero-player-id updated-state next-player-id)
+                                     (get-minions updated-state next-player-id))
+        state-after-next-turn (effects-parser updated-state
+                                              next-player-characters
+                                              next-player-id
+                                              :next-turn)
 
-        ;; 5) Apply the final hero-mana update
-        final-state      (update-hero final-state next-player-id :mana updated-max-mana)]
+        ;; Handle fatigue or card drawing
+        state-after-draw (if (should-take-fatigue? state-after-next-turn next-player-id)
+                           (handle-fatigue state-after-next-turn next-player-id)
+                           (draw-card state-after-next-turn next-player-id))
 
-    (println "State after end-turn:" final-state)
+        ;; Process aura effects after all state changes
+        state-after-auras (effects-parser state-after-draw
+                                          (concat (get-minions state-after-draw "p1")
+                                                  (get-minions state-after-draw "p2"))
+                                          next-player-id
+                                          :process-auras)
+
+        ;; Update attack targets
+        final-state (get-valid-attacks state-after-auras)]
+
     final-state))
 
 
