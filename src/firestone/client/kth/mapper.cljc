@@ -3,7 +3,8 @@
             [firestone.construct :as construct]
             [ysera.test :refer [is]]
             [firestone.client.kth.spec]
-            [firestone.definitions :as def]))
+            [firestone.definitions :as def]
+            [firestone.core :refer [get-attack]]))
 
 
 (defn check-spec
@@ -38,7 +39,7 @@
                       :mana-cost          (:mana-cost (:hero-power hero))
                       :original-mana-cost (construct/get-mana-cost (:name (:hero-power hero)))
                       :can-use            (construct/hero-can-use-power? game player-id hero)
-                      :owner-id           (:id (construct/get-hero-player-id game player-id))
+                      :owner-id           (:id (construct/get-hero game player-id))
                       :has-used-your-turn (:has-used-your-turn hero)
                       :valid-target-ids   (construct/get-valid-target-ids game player-id hero)}})
 
@@ -74,7 +75,7 @@
                                   [])
    :can-attack                  (or (:can-attack minion) false)
    :health                      (- (:health minion) (:damage-taken minion))
-   :attack                      (firestone.core/get-attack game (:id minion))
+   :attack                      (get-attack game (:id minion))
    :valid-attack-ids            (construct/get-attackable-ids game (:owner-id minion))
    :max-health                  (:original-health minion)
    :race                        (:race minion)
@@ -118,7 +119,7 @@
 (defn player->client-player
   {:test (fn []
            (let [game (construct/create-game)]
-             (is (  check-spec :firestone.client.kth.spec/player
+             (is (check-spec :firestone.client.kth.spec/player
                              (player->client-player game
                                                     (construct/get-player game "p1"))))))}
   [game player]
@@ -133,11 +134,15 @@
      :id             player-id}))
 
 (defn game->client-game
-  [game]
-  {:action-index   0
-   :id             "the-game-id"
-   :player-in-turn (construct/get-player-id-in-turn game)
-   :players        (->> ["p1" "p2"]
-                        (map (fn [player-id]
-                               (player->client-player game
-                                                      (construct/get-player game player-id)))))})
+  "Converts a game state to a client-friendly format
+   Accepts an optional action-index parameter that defaults to 0"
+  ([game]
+   (game->client-game game 0))
+  ([game action-index]
+   {:action-index   action-index
+    :id             "the-game-id"
+    :player-in-turn (construct/get-player-id-in-turn game)
+    :players        (->> ["p1" "p2"]
+                         (map (fn [player-id]
+                                (player->client-player game
+                                                       (construct/get-player game player-id)))))}))

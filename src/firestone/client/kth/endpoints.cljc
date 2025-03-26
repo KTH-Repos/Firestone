@@ -1,7 +1,6 @@
 (ns firestone.client.kth.endpoints
   (:require [clojure.data.json :as json]
-            [firestone.client.kth.edn-api :refer [create-game! end-turn! play-card! attack!]]
-            [firestone.client.kth.mapper :refer [game->client-game]]))
+            [firestone.client.kth.edn-api :refer [create-game! end-turn! play-card! attack! undo! redo!]]))
 
 (def cors-headers {"Access-Control-Allow-Origin"  "*"
                    "Access-Control-Allow-Methods" "*"})
@@ -20,8 +19,8 @@
       (= uri "/engine-settings")
       {:status  200
        :headers (merge cors-headers {"Content-Type" "application/json"})
-       :body    (json/write-str {:supports-redo false
-                                 :supports-undo false
+       :body    (json/write-str {:supports-redo true
+                                 :supports-undo true
                                  :audio         :auto})}
 
       (= uri "/create-game")
@@ -83,6 +82,18 @@
             player-id (:player-id body)
             target-id (:target-id body)
             result (attack! player-id attacker-id target-id)]
+        {:status  200
+         :headers (merge cors-headers {"Content-Type" "application/json"})
+         :body    (json/write-str result)})
+
+      (= uri "/undo")
+      (let [result (undo!)]
+        {:status  200
+         :headers (merge cors-headers {"Content-Type" "application/json"})
+         :body    (json/write-str result)})
+
+      (= uri "/redo")
+      (let [result (redo!)]
         {:status  200
          :headers (merge cors-headers {"Content-Type" "application/json"})
          :body    (json/write-str result)})
