@@ -463,7 +463,7 @@
         sheep2 (get-minion state-after-turn "sheep2")]
 
     (is (= p1-final-health (- p1-initial-health 2)))
-    (is (= p2-final-health (- p2-initial-health 2)))
+    (is (= p2-final-health (- p2-initial-health 3)))        ;; fatigue
     (is (nil? sheep1))  ; Sheep should be dead from 2 damage
     (is (nil? sheep2))))
 
