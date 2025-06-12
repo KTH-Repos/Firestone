@@ -319,16 +319,13 @@
     (is (empty? p1-secrets)
         "Explosive Trap should be consumed after triggering")))
 
-(deftest test-cat-trick-effect
+(deftest test-cat-trick-effect-direct
   (let [state (-> (create-game)
                   (add-card-to-hand "p1" (create-card "Cat Trick" :id "ct")))
-
         state-after-play (play-card state "p1" "ct" nil nil)
         p1-secrets (get-in state-after-play [:players "p1" :secrets])
         cat-trick-secret (first (filter #(= (:name %) "Cat Trick") p1-secrets))
-
         initial-minion-count (count (get-minions state-after-play "p1"))
-
 
         state-after-trigger (if cat-trick-secret
                               (firestone.construct/effects-parser
@@ -336,20 +333,19 @@
                                 [cat-trick-secret]
                                 "p1"
                                 :opponent-play-spell
-                                {})
+                                {:player-id "p2"})  ; Include proper context
                               state-after-play)
 
         final-minion-count (count (get-minions state-after-trigger "p1"))
         summoned-cat (first (filter #(= (:name %) "Cat in a Hat")
                                     (get-minions state-after-trigger "p1")))
-
         final-secrets (get-in state-after-trigger [:players "p1" :secrets])]
 
     (is (not (nil? cat-trick-secret)) "Cat Trick should be added to secrets when played")
     (is (= final-minion-count (inc initial-minion-count)) "Should summon one cat when triggered")
     (is (not (nil? summoned-cat)) "Cat in a Hat should be summoned")
     (is (= (get-attack state-after-trigger (:id summoned-cat)) 4) "Cat should have 4 attack")
-    (is (= (get-health summoned-cat) 2) "Cat should have 2 health")
+    (is (= (get-health state-after-trigger (:id summoned-cat)) 2) "Cat should have 2 health")
     (is (empty? final-secrets) "Cat Trick should be consumed after triggering")))
 
 
