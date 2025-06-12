@@ -203,12 +203,24 @@
                             remaining 3]
                        (if (zero? remaining)
                          state
+<<<<<<< Updated upstream
                          (let [current-characters (filter #(not= (:id %) id) (get-all-characters state))
                                target (when (seq current-characters) (rand-nth current-characters))]
                            (if target
                              (recur (deal-damage-and-check-death state (:id target) 1)
                                     (dec remaining))
                              state))))))}
+=======
+                         (let [target (rand-nth all-characters)]
+                           (recur
+                             (if (= (:entity-type target) :hero)
+                               (let [player-id (get-player-id-by-hero-id state (:id target))]
+                                 (if player-id
+                                   (update-hero state player-id :damage-taken inc)
+                                   state))
+                               (update-minion state (:id target) :damage-taken inc))
+                             (dec remaining)))))))}
+>>>>>>> Stashed changes
 
    "Twilight Drake"
    {:name        "Twilight Drake"
@@ -396,6 +408,17 @@
                             state (update-hero state enemy-id :damage-taken #(+ % 2))
                             state (reduce (fn [state minion]
                                             (deal-damage-and-check-death state (:id minion) 2))
+                                          state
+                                          enemy-minions)
+
+                            state (reduce (fn [state minion]
+                                            (let [updated-minion (get-minion state (:id minion))]
+                                              (if (and updated-minion
+                                                       (let [definition (get-definition (:name updated-minion))
+                                                             max-health (or (:health definition) 1)]
+                                                         (>= (:damage-taken updated-minion) max-health)))
+                                                (remove-minion state (:id minion))
+                                                state)))
                                           state
                                           enemy-minions)]
                         state))}
@@ -608,14 +631,15 @@
     :set         :basic
     :type        :minion
     :description "Your other minions have +1 Attack."
-    :aura        (fn [{:keys [state id]}]
-                   (let [raid-leader (get-minion state id)
-                         owner-id (:owner-id raid-leader)
-                         friendly-minions (filter #(not= (:id %) id) (get-minions state owner-id))]
-                     (reduce (fn [state minion]
-                               (update-minion state (:id minion) :attack inc))
-                             state
-                             friendly-minions)))}
+    :process-auras (fn [{:keys [state id]}]
+                     (let [raid-leader (get-minion state id)
+                           owner-id (:owner-id raid-leader)
+                           friendly-minions (filter #(not= (:id %) id) (get-minions state owner-id))]
+                       (reduce (fn [state minion]
+                                 (update-minion state (:id minion) :overrides
+                                                #(assoc % :attack-bonus (+ (get % :attack-bonus 0) 1))))
+                               state
+                               friendly-minions)))}
 
    "Shudderwock"
    {:name        "Shudderwock"
