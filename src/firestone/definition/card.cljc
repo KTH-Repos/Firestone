@@ -513,16 +513,20 @@
     :description  "Give your minions \"Deathrattle: Add a random Beast to your hand.\""
     :spell-effect (fn [{:keys [state player-id]}]
                     (let [player-minions (get-minions state player-id)
-                          infest-deathrattle {:deathrattle (fn [{:keys [state player-id]}]
-                                                             (let [beast-cards (filter #(= (:race %) :beast)
-                                                                                       (map #(get-definition %)
-                                                                                            (keys (get-definitions))))]
-                                                               (when (seq beast-cards)
-                                                                 (let [random-beast (rand-nth beast-cards)]
-                                                                   (add-card-to-hand state player-id (:name random-beast))))))}]
+
+                          infest-deathrattle {:deathrattle
+                                              (fn [{:keys [state player-id]}]
+                                                (let [all-definitions (get-definitions)
+                                                      beast-cards (filter #(= (:race %) :beast) all-definitions)]
+                                                  (when (seq beast-cards)
+                                                    (let [random-beast (rand-nth beast-cards)]
+                                                      (add-card-to-hand state player-id (:name random-beast))))))}]
+
+                      
                       (reduce (fn [state minion]
                                 (update-minion state (:id minion) :effects
-                                               (fn [effects] (conj (or effects []) infest-deathrattle))))
+                                               (fn [effects]
+                                                 (conj (or effects []) infest-deathrattle))))
                               state
                               player-minions)))}
 
