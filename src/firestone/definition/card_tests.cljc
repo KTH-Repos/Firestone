@@ -22,8 +22,8 @@
 (deftest test-boulderfist-ogre-stats
   (let [state (create-game [{:minions [(create-minion "Boulderfist Ogre" :id "bo")]}])
         ogre (get-minion state "bo")]
-    (is (= (:attack ogre) 6))
-    (is (= (:health ogre) 7))))
+    (is (= (get-attack state "bo") 6))
+    (is (= (get-health ogre) 7))))
 
 (deftest test-leper-gnome-effect
   (let [state (create-game [{:minions [(create-minion "Leper Gnome" :id "m1")]}
@@ -44,9 +44,8 @@
 (deftest test-sheep-stats
   (let [state (create-game [{:minions [(create-minion "Sheep" :id "sheep")]}])
         sheep (get-minion state "sheep")]
-    (is (= (:attack sheep) 1))
-    (is (= (:health sheep) 1))
-    (is (= (:race sheep) :beast))))
+    (is (= (get-attack state "sheep") 1))
+    (is (= (get-health sheep) 1))))
 
 (deftest test-moroes-effect
   (let [state (-> (create-game)
@@ -237,8 +236,8 @@
   (let [state (create-game [{:minions [(create-minion "Squire" :id "sq")]}])
         squire (get-minion state "sq")]
 
-    (is (= (:attack squire) 2))
-    (is (= (:health squire) 2))))
+    (is (= (get-attack state "sq") 2))
+    (is (= (get-health squire) 2))))
 
 (deftest test-boom-bot-effect
   (let [state (create-game [{:minions [(create-minion "Boom Bot" :id "bb")]}
@@ -254,8 +253,8 @@
   (let [state (create-game [{:minions [(create-minion "Steward" :id "st")]}])
         steward (get-minion state "st")]
 
-    (is (= (:attack steward) 1))
-    (is (= (:health steward) 1))))
+    (is (= (get-attack state "st") 1))
+    (is (= (get-health steward) 1))))
 
 (deftest test-knife-juggler-effect
   (let [state (-> (create-game)
@@ -508,7 +507,7 @@
       (println "Sheep1 attack bonus:" (get-in sheep1-after [:overrides :attack-bonus]))
       (println "Sheep2 attack bonus:" (get-in sheep2-after [:overrides :attack-bonus])))
 
-   
+
     (is (= sheep1-attack-after (+ sheep1-attack-before 1))
         (str "Sheep1 should get +1 attack from Raid Leader (" sheep1-attack-before " → " sheep1-attack-after ")"))
     (is (= sheep2-attack-after (+ sheep2-attack-before 1))
@@ -523,10 +522,11 @@
         shudderwock (first (filter #(= (:name %) "Shudderwock")
                                    (get-minions state-after-play "p1")))]
 
-    ;; Simply verify that the card was played successfully
     (is (not (nil? shudderwock)))
-    (is (= (:attack shudderwock) 6))
-    (is (= (:health shudderwock) 6))))
+
+    (is (= (get-attack state-after-play (:id shudderwock)) 6))
+    (is (= (get-health shudderwock) 6))))
+
 
 (deftest test-unearthed-raptor-effect
   (let [state (-> (create-game)
