@@ -20,7 +20,10 @@
                                          get-all-characters
                                          get-player-id-by-hero-id
                                          update-hero
-                                         deal-damage-and-check-death]]))
+                                         deal-damage-and-check-death
+                                         next-random
+                                         apply-to-random-target
+                                         apply-random-damage]]))
 
 ;; Card definitions with embedded effect functions
 (def card-definitions
@@ -185,10 +188,11 @@
     :rarity      :rare
     :battlecry   (fn [{:keys [state enemy-id]}]
                    (let [enemy-minions (get-minions state enemy-id)
-                         eligible-minions (filter #(<= (get-attack state (:id %)) 2) enemy-minions)]
-                     (when (seq eligible-minions)
-                       (let [target (rand-nth eligible-minions)]
-                         (remove-minion state (:id target))))))}
+                         eligible-minions (filter #(<= (get-attack state (:id %)) 2) enemy-minions)
+                         targets (vec (map :id eligible-minions))]
+                     (apply-to-random-target state targets
+                                             (fn [state target-id]
+                                               (remove-minion state target-id)))))}
 
    "Mad Bomber"
    {:name        "Mad Bomber"
@@ -201,17 +205,13 @@
     :set         :classic
     :type        :minion
     :battlecry   (fn [{:keys [state id]}]
-                   (let [all-characters (filter #(not= (:id %) id) (get-all-characters state))]
-                     (loop [state state
-                            remaining 3]
-                       (if (zero? remaining)
-                         state
-                         (let [current-characters (filter #(not= (:id %) id) (get-all-characters state))
-                               target (when (seq current-characters) (rand-nth current-characters))]
-                           (if target
-                             (recur (deal-damage-and-check-death state (:id target) 1)
-                                    (dec remaining))
-                             state))))))}
+                   (reduce (fn [current-state _]
+                             (let [all-characters (get-all-characters current-state)
+                                   targets (vec (map :id (filter #(not= (:id %) id) all-characters)))]
+                               (apply-to-random-target current-state targets
+                                                       (fn [state target-id]
+                                                         (deal-damage-and-check-death state target-id 1)))))
+                           state [1 1 1]))}
 
    "Twilight Drake"
    {:name        "Twilight Drake"
@@ -258,11 +258,12 @@
     :set         :classic
     :rarity      :common
     :end-of-turn (fn [{:keys [state id player-id]}]
-                   (let [friendly-minions (filter #(not= (:id %) id) (get-minions state player-id))]
-                     (when (seq friendly-minions)
-                       (let [random-minion (rand-nth friendly-minions)]
-                         (update-minion state (:id random-minion) :overrides
-                                        #(assoc % :health-bonus (+ (get % :health-bonus 0) 1)))))))}
+                   (let [friendly-minions (filter #(not= (:id %) id) (get-minions state player-id))
+                         targets (vec (map :id friendly-minions))]
+                     (apply-to-random-target state targets
+                                             (fn [state target-id]
+                                               (update-minion state target-id :overrides
+                                                              #(assoc % :health-bonus (+ (get % :health-bonus 0) 1)))))))}
 
    "Equality"
    {:name         "Equality"
@@ -316,13 +317,12 @@
     :set         :goblins-vs-gnomes
     :description "Deathrattle: Deal 1-4 damage to a random enemy."
     :deathrattle (fn [{:keys [state enemy-id]}]
-                   (let [damage (inc (rand-int 4))
-                         enemy-minions (get-minions state enemy-id)
+                   (let [enemy-minions (get-minions state enemy-id)
                          enemy-hero (get-hero state enemy-id)
-                         targets (cons enemy-hero enemy-minions)]
-                     (when (seq targets)
-                       (let [target (rand-nth targets)]
-                         (deal-damage-and-check-death state (:id target) damage)))))}
+                         targets (vec (cons (:id enemy-hero) (map :id enemy-minions)))]
+                     (apply-to-random-target state targets
+                                             (fn [state target-id]
+                                               (apply-random-damage state target-id 1 4)))))}
 
    "Steward"
    {:name      "Steward"
@@ -343,11 +343,12 @@
     :type          :minion
     :description   "After you summon a minion, deal 1 damage to a random enemy."
     :summon-minion (fn [{:keys [state enemy-id]}]
-                     (let [all-enemy-characters (cons (get-hero state enemy-id)
-                                                      (get-minions state enemy-id))]
-                       (when (seq all-enemy-characters)
-                         (let [target (rand-nth all-enemy-characters)]
-                           (deal-damage-and-check-death state (:id target) 1)))))}
+                     (let [enemy-minions (get-minions state enemy-id)
+                           enemy-hero (get-hero state enemy-id)
+                           targets (vec (cons (:id enemy-hero) (map :id enemy-minions)))]
+                       (apply-to-random-target state targets
+                                               (fn [state target-id]
+                                                 (deal-damage-and-check-death state target-id 1)))))}
 
    "Questing Adventurer"
    {:name        "Questing Adventurer"
@@ -488,16 +489,14 @@
     :description  "Give your minions \"Deathrattle: Add a random Beast to your hand.\""
     :spell-effect (fn [{:keys [state player-id]}]
                     (let [player-minions (get-minions state player-id)
-
                           infest-deathrattle {:deathrattle
                                               (fn [{:keys [state player-id]}]
                                                 (let [all-definitions (get-definitions)
-                                                      beast-cards (filter #(= (:race %) :beast) all-definitions)]
+                                                      beast-cards (vec (filter #(= (:race %) :beast) all-definitions))]
                                                   (when (seq beast-cards)
-                                                    (let [random-beast (rand-nth beast-cards)]
-                                                      (add-card-to-hand state player-id (:name random-beast))))))}]
-
-
+                                                    (let [[new-state random-idx] (next-random state (count beast-cards))
+                                                          random-beast (beast-cards random-idx)]
+                                                      (add-card-to-hand new-state player-id (:name random-beast))))))}]
                       (reduce (fn [state minion]
                                 (update-minion state (:id minion) :effects
                                                (fn [effects]
@@ -517,11 +516,12 @@
     :rarity      :legendary
     :description "Can't attack. At the end of your turn, deal 8 damage to a random enemy."
     :end-of-turn (fn [{:keys [state enemy-id]}]
-                   (let [enemy-characters (cons (get-hero state enemy-id)
-                                                (get-minions state enemy-id))]
-                     (when (seq enemy-characters)
-                       (let [target (rand-nth enemy-characters)]
-                         (deal-damage-and-check-death state (:id target) 8)))))}
+                   (let [enemy-minions (get-minions state enemy-id)
+                         enemy-hero (get-hero state enemy-id)
+                         targets (vec (cons (:id enemy-hero) (map :id enemy-minions)))]
+                     (apply-to-random-target state targets
+                                             (fn [state target-id]
+                                               (deal-damage-and-check-death state target-id 8)))))}
 
    "Shadow Sensei"
    {:name        "Shadow Sensei"
@@ -595,11 +595,14 @@
                            all-characters (filter #(not= (:id %) attacker-id)
                                                   (filter #(not= (:id %) id)
                                                           (get-all-characters state)))
-                           new-target (when (seq all-characters) (rand-nth all-characters))]
-                       (when (and attacker new-target)
-                         (update-in state [:players player-id :secrets]
-                                    (fn [secrets]
-                                      (filter #(not= (:id %) id) secrets))))))}
+                           targets (vec (map :id all-characters))]
+                       (when (and attacker (seq targets))
+                         (let [state (update-in state [:players player-id :secrets]
+                                                (fn [secrets]
+                                                  (filter #(not= (:id %) id) secrets)))]
+                           (apply-to-random-target state targets
+                                                   (fn [state]
+                                                     state))))))}
 
 
    "Raid Leader"
@@ -632,13 +635,15 @@
     :rarity      :legendary
     :description "Battlecry: Repeat all other Battlecries from cards you played this game (targets chosen randomly)."
     :battlecry   (fn [{:keys [state id player-id enemy-id]}]
-                   (let [minions-with-battlecries (filter #(contains? (get-definition %) :battlecry)
-                                                          (keys (get-definitions)))]
+                   (let [all-definitions (get-definitions)
+                         minions-with-battlecries (vec (filter #(contains? (second %) :battlecry)
+                                                               all-definitions))]
                      (if (seq minions-with-battlecries)
-                       (let [random-battlecry (rand-nth minions-with-battlecries)
-                             battlecry-fn (get-in (get-definition random-battlecry) [:battlecry])]
+                       (let [[new-state random-idx] (next-random state (count minions-with-battlecries))
+                             [_ random-definition] (minions-with-battlecries random-idx)
+                             battlecry-fn (:battlecry random-definition)]
                          (when battlecry-fn
-                           (battlecry-fn {:state state :id id :player-id player-id :enemy-id enemy-id :target-id nil})))
+                           (battlecry-fn {:state new-state :id id :player-id player-id :enemy-id enemy-id :target-id nil})))
                        state)))}
 
    "Unearthed Raptor"
@@ -654,13 +659,15 @@
     :description "Battlecry: Choose a friendly minion. Gain a copy of its Deathrattle effect."
     :battlecry   (fn [{:keys [state id target-id player-id]}]
                    (when target-id
-                     (let [target (get-minion state target-id)
-                           target-effects (:effects target)]
+                     (let [target (get-minion state target-id)]
                        (when (and target (= (:owner-id target) player-id))
-                         (let [deathrattle-effects (filter #(contains? (get-definition %) :deathrattle) target-effects)]
-                           (when (seq deathrattle-effects)
+                         (let [target-definition (get-definition (:name target))
+                               target-deathrattle (:deathrattle target-definition)]
+                           (when target-deathrattle
                              (update-minion state id :effects
-                                            (fn [effects] (concat (or effects []) deathrattle-effects)))))))))}
+                                            (fn [effects]
+                                              (conj (or effects [])
+                                                    {:deathrattle target-deathrattle})))))))))}
    })
 
 ;; Add all the definitions to the game
