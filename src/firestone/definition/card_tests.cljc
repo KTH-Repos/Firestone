@@ -11,7 +11,6 @@
                                          add-minion-to-board
                                          add-card-to-hand
                                          add-card-to-deck
-                                         add-card-to-secrets
                                          remove-minion
                                          update-minion
                                          update-hero

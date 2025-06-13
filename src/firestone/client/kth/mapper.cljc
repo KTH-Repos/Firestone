@@ -233,5 +233,4 @@
           (construct/add-cards-to-deck "p2" card-names)
           (construct/add-cards-to-hand "p1" (take 4 card-names))
           (construct/add-cards-to-hand "p2" (take 4 card-names))))
-    ;; If game-params is provided (even if empty []), respect that and don't add defaults
     state))

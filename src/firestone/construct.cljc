@@ -1090,16 +1090,6 @@
       state
       minions)))
 
-(defn remove-can-attack
-  "Sets can-attack for the minions of the given player-id to nil"
-  [state player-id]
-  (let [minions (get-minions state player-id)]
-    (reduce
-      (fn [state minion]
-        (update-minion state (:id minion) :can-attack nil))
-      state
-      minions)))
-
 (defn reset-attacks-performed-this-turn
   "Resets attacks-performed-this-turn for the minions of the given player-id"
   [state player-id]
@@ -1159,7 +1149,6 @@
   (let [definition (get-definition (:name hero-or-card))
         hero-ids [(get-in (get-hero state "p1") [:id])
                   (get-in (get-hero state "p2") [:id])]
-        minion-ids (map :id (get-minions state))
         enemy-player-id (if (= player-id "p1") "p2" "p1")
         enemy-minion-ids (map :id
                               (filter #(not (some #{:stealth} (:states %)))
@@ -1223,3 +1212,36 @@
         (if (and updated-minion (<= (get-health updated-minion) 0))
           (remove-minion state target-id)
           state)))))
+
+(defn get-random-int
+  "Generate a random integer using a seed. Returns [new-seed, random-int]"
+  [seed max]
+  (let [rng (java.util.Random. seed)
+        result (.nextInt rng max)
+        new-seed (.nextLong rng)]
+    [new-seed result]))
+
+(defn next-random
+  "Get next random number and update state seed. Returns [new-state, random-number]"
+  [state max]
+  (let [[new-seed num] (get-random-int (:seed state) max)
+        new-state (assoc state :seed new-seed)]
+    [new-state num]))
+
+(defn apply-to-random-target
+  "Apply function to a randomly selected target from targets vector"
+  [state targets fun]
+  {:pre [(vector? targets)]}
+  (if (empty? targets)
+    state
+    (let [num-targets (count targets)
+          [state num] (next-random state num-targets)]
+      (fun state (targets num)))))
+
+(defn apply-random-damage
+  "Deal random damage (min to max) to target"
+  [state target-id min-damage max-damage]
+  (let [damage-range (inc (- max-damage min-damage))
+        [state random-amount] (next-random state damage-range)
+        actual-damage (+ min-damage random-amount)]
+    (deal-damage-and-check-death state target-id actual-damage)))
