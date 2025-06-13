@@ -67,21 +67,28 @@
     (is (= enemy-hero-health 28))))
 
 (deftest test-kill-command-effect
-  (let [state-without-beast (-> (create-game)
+  (let [;; Test without beast - should deal 3 damage
+        state-without-beast (-> (create-game)
                                 (add-card-to-hand "p1" (create-card "Kill Command" :id "kc"))
-                                (add-minion-to-board "p2" (create-minion "Sheep" :id "target" :health 4 :damage-taken 0) 0))
-        state-after-spell1 (play-card state-without-beast "p1" "kc" "target" nil)
-        target1 (get-minion state-after-spell1 "target")
+                                (add-minion-to-board "p2" (create-minion "Boulderfist Ogre" :id "target1") 0))
+        state-after-spell1 (play-card state-without-beast "p1" "kc" "target1" nil)
+        target1 (get-minion state-after-spell1 "target1")
 
+        ;; Test with beast - should deal 5 damage
         state-with-beast (-> (create-game)
-                             (add-card-to-hand "p1" (create-card "Kill Command" :id "kc"))
-                             (add-minion-to-board "p1" (create-minion "Sheep" :id "beast" :race :beast) 0)
-                             (add-minion-to-board "p2" (create-minion "Sheep" :id "target" :health 6 :damage-taken 0) 0))
-        state-after-spell2 (play-card state-with-beast "p1" "kc" "target" nil)
-        target2 (get-minion state-after-spell2 "target")]
+                             (add-card-to-hand "p1" (create-card "Kill Command" :id "kc2"))
+                             (add-minion-to-board "p1" (create-minion "Sheep" :id "beast") 0) ; Sheep is a beast
+                             (add-minion-to-board "p2" (create-minion "Boulderfist Ogre" :id "target2") 0))
+        state-after-spell2 (play-card state-with-beast "p1" "kc2" "target2" nil)
+        target2 (get-minion state-after-spell2 "target2")]
 
-    (is (= (:damage-taken target1) 3))
-    (is (= (:damage-taken target2) 5))))
+    ;; Without beast: should deal 3 damage
+    (is (= (:damage-taken target1) 3)
+        (str "Target should take 3 damage without beast, got " (:damage-taken target1)))
+
+    ;; With beast: should deal 5 damage
+    (is (= (:damage-taken target2) 5)
+        (str "Target should take 5 damage with beast, got " (:damage-taken target2)))))
 
 (deftest test-silver-hand-knight-effect
   (let [state (-> (create-game)
