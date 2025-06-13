@@ -119,7 +119,11 @@
     :description  "Deal 3 damage. If you control a Beast deal 5 damage instead."
     :spell-effect (fn [{:keys [state player-id target-id]}]
                     (when target-id
-                      (let [has-beast (some #(= (:race %) :beast) (get-minions state player-id))
+                      (let [player-minions (get-minions state player-id)
+                            has-beast (some (fn [minion]
+                                              (let [definition (get-definition (:name minion))]
+                                                (= (:race definition) :beast)))
+                                            player-minions)
                             damage (if has-beast 5 3)]
                         (deal-damage-and-check-death state target-id damage))))}
 
